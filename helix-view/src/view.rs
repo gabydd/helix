@@ -215,9 +215,9 @@ impl View {
     }
 
     pub fn ensure_cursor_in_view(&mut self, doc: &Document, scrolloff: usize) {
-        if let Some((row, col)) = self.offset_coords_to_in_view(doc, scrolloff) {
+        if let Some((row, _col)) = self.offset_coords_to_in_view(doc, scrolloff) {
             self.offset.row = row;
-            self.offset.col = col;
+            self.offset.col = 0;
         }
     }
 

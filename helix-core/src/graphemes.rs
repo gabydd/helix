@@ -300,6 +300,18 @@ impl<'a> RopeGraphemes<'a> {
             cursor: GraphemeCursor::new(0, slice.len_bytes(), true),
         }
     }
+
+    /// Advances to `byte_pos` if it is at a grapheme boundrary
+    /// otherwise advances to the next grapheme boundrary after byte
+    pub fn advance_to(&mut self, byte_pos: usize) {
+        while byte_pos > self.byte_pos() {
+            self.next();
+        }
+    }
+
+    pub fn byte_pos(&self) -> usize {
+        self.cursor.cur_cursor()
+    }
 }
 
 impl<'a> Iterator for RopeGraphemes<'a> {
