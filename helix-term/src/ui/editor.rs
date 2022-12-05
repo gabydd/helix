@@ -121,9 +121,6 @@ impl EditorView {
             }
         }
 
-        if is_focused && config.cursorline {
-            Self::highlight_cursorline(doc, view, surface, theme);
-        }
         if is_focused && config.cursorcolumn {
             Self::highlight_cursorcolumn(doc, view, surface, theme);
         }
@@ -152,6 +149,10 @@ impl EditorView {
             Box::new(highlights)
         };
 
+        let mut callbacks = vec![];
+        if is_focused && config.cursorline {
+            callbacks.push(Self::highlight_cursorline(doc, view, theme));
+        };
         let line_starts = Self::render_text_highlights(
             doc,
             view.offset,
@@ -160,6 +161,7 @@ impl EditorView {
             theme,
             highlights,
             &config,
+            callbacks,
         );
         Self::render_gutter(
             editor,
@@ -431,6 +433,7 @@ impl EditorView {
         theme: &Theme,
         highlights: H,
         config: &helix_view::editor::Config,
+        callbacks: Vec<Box<dyn Fn((u16, usize), &mut Surface)>>,
     ) -> Vec<(u16, usize)> {
         // log::error!("{doc_offset:?}");
         let render_config = TextRenderConfig::new(doc, config, theme, &offset);
@@ -461,6 +464,8 @@ impl EditorView {
                 last_doc_line = render.doc_line();
                 line_starts.push((text_render.visual_line(), render.doc_line()))
             }
+            text_render
+                .render_callbacks((text_render.visual_line(), render.doc_line()), &callbacks);
             render.render_line(&mut text_render);
         }
         line_starts
@@ -674,9 +679,12 @@ impl EditorView {
     }
 
     /// Apply the highlighting on the lines where a cursor is active
-    pub fn highlight_cursorline(doc: &Document, view: &View, surface: &mut Surface, theme: &Theme) {
+    pub fn highlight_cursorline(
+        doc: &Document,
+        view: &View,
+        theme: &Theme,
+    ) -> Box<dyn Fn((u16, usize), &mut Surface)> {
         let text = doc.text().slice(..);
-        let last_line = view.last_line(doc);
 
         let primary_line = doc.selection(view.id).primary().cursor_line(text);
 
@@ -694,20 +702,17 @@ impl EditorView {
 
         let primary_style = theme.get("ui.cursorline.primary");
         let secondary_style = theme.get("ui.cursorline.secondary");
-
-        for line in view.offset.row..(last_line + 1) {
-            let area = Rect::new(
-                view.area.x,
-                view.area.y + (line - view.offset.row) as u16,
-                view.area.width,
-                1,
-            );
+        let x = view.area.x;
+        let y = view.area.y;
+        let width = view.area.width;
+        Box::new(move |(i, line), surface| {
+            let area = Rect::new(x, y + i, width, 1);
             if primary_line == line {
                 surface.set_style(area, primary_style);
             } else if secondary_lines.binary_search(&line).is_ok() {
                 surface.set_style(area, secondary_style);
             }
-        }
+        })
     }
 
     /// Apply the highlighting on the columns where a cursor is active

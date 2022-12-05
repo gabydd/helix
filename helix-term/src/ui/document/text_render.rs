@@ -372,4 +372,14 @@ impl<'a> TextRender<'a> {
     pub fn reached_viewport_end(&mut self) -> bool {
         self.visual_line >= self.viewport.height
     }
+
+    pub fn render_callbacks(
+        &mut self,
+        line_start: (u16, usize),
+        callbacks: &Vec<Box<dyn Fn((u16, usize), &mut Surface)>>,
+    ) {
+        for f in callbacks {
+            f(line_start, self.surface);
+        }
+    }
 }

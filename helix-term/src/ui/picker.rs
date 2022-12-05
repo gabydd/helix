@@ -296,6 +296,7 @@ impl<T: Item + 'static> Component for FilePicker<T> {
                 &cx.editor.theme,
                 highlights,
                 &cx.editor.config(),
+                vec![],
             );
 
             // highlight the line
