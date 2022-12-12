@@ -118,6 +118,8 @@ pub struct LanguageConfiguration {
     pub block_comment_tokens: Option<Vec<BlockCommentToken>>,
     pub text_width: Option<usize>,
     pub soft_wrap: Option<SoftWrap>,
+    pub comment_token: Option<String>, // TODO: deprecate
+    pub max_line_length: Option<usize>,
 
     #[serde(default)]
     pub auto_format: bool,

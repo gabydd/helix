@@ -1716,7 +1716,7 @@ injection-regex = "erl(ang)?"
 file-types = ["erl", "hrl", "app", { glob = "rebar.config" }, { glob = "rebar.lock" }, { glob = "*.app.src" }]
 roots = ["rebar.config"]
 shebangs = ["escript"]
-comment-token = "%%"
+comment-tokens = ["%%"]
 indent = { tab-width = 4, unit = "    " }
 language-servers = [ "erlang-ls" ]
 
@@ -1797,7 +1797,7 @@ scope = "source.gleam"
 injection-regex = "gleam"
 file-types = ["gleam"]
 roots = ["gleam.toml"]
-comment-token = "//"
+comment-tokens = ["//", "///"]
 indent = { tab-width = 2, unit = "  " }
 language-servers = [ "gleam" ]
 auto-format = true
