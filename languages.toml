@@ -145,6 +145,7 @@ command = ["golangci-lint", "run", "--out-format", "json", "--issues-exit-code=1
 command = "rust-analyzer"
 
 [language-server.rust-analyzer.config]
+check.command = "clippy"
 inlayHints.bindingModeHints.enable = false
 inlayHints.closingBraceHints.minLines = 10
 inlayHints.closureReturnTypeHints.enable = "with_block"
@@ -220,6 +221,7 @@ persistent-diagnostic-sources = ["rustc", "clippy"]
 '[' = ']'
 '"' = '"'
 '`' = '`'
+'|' = '|'
 
 [language.debugger]
 name = "lldb-dap"
