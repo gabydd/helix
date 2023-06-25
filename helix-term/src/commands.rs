@@ -56,7 +56,7 @@ use movement::Movement;
 
 use crate::{
     args,
-    compositor::{self, Component, Compositor},
+    compositor::{self, Component, Compositor, EventResult},
     filter_picker_entry,
     job::Callback,
     keymap::Keymaps,
@@ -223,6 +223,11 @@ pub enum MappableCommand {
         name: String,
         keys: Vec<KeyEvent>,
     },
+    Component {
+        name: &'static str,
+        fun: fn(&mut dyn crate::compositor::Component, &mut compositor::Context) -> EventResult,
+        doc: &'static str,
+    },
 }
 
 macro_rules! static_commands {
@@ -277,6 +282,7 @@ impl MappableCommand {
                     cx.editor.macro_replaying.pop();
                 }));
             }
+            Self::Component { .. } => unimplemented!(),
         }
     }
 
@@ -285,6 +291,7 @@ impl MappableCommand {
             Self::Typable { name, .. } => name,
             Self::Static { name, .. } => name,
             Self::Macro { name, .. } => name,
+            Self::Component { .. } => unimplemented!(),
         }
     }
 
@@ -293,8 +300,17 @@ impl MappableCommand {
             Self::Typable { doc, .. } => doc,
             Self::Static { doc, .. } => doc,
             Self::Macro { name, .. } => name,
+            Self::Component { .. } => unimplemented!(),
         }
     }
+
+    // TODO: macro for this...
+    #[allow(non_upper_case_globals)]
+    pub const close_buffer_in_buffer_picker: Self = Self::Component {
+        name: "close_buffer_in_buffer_picker",
+        fun: crate::ui::picker::close_buffer_in_buffer_picker,
+        doc: "Closes the currently focused buffer",
+    };
 
     #[rustfmt::skip]
     static_commands!(
@@ -611,6 +627,7 @@ impl fmt::Debug for MappableCommand {
                 .field(name)
                 .field(keys)
                 .finish(),
+            Self::Component { .. } => unimplemented!(),
         }
     }
 }
@@ -2991,16 +3008,18 @@ fn file_picker_in_current_directory(cx: &mut Context) {
     cx.push_layer(Box::new(overlaid(picker)));
 }
 
+pub struct BufferMeta {
+    pub id: DocumentId,
+    path: Option<PathBuf>,
+    is_modified: bool,
+    is_current: bool,
+    focused_at: std::time::Instant,
+}
+
+pub type BufferPicker = Picker<BufferMeta, ()>;
+
 fn buffer_picker(cx: &mut Context) {
     let current = view!(cx.editor).doc;
-
-    struct BufferMeta {
-        id: DocumentId,
-        path: Option<PathBuf>,
-        is_modified: bool,
-        is_current: bool,
-        focused_at: std::time::Instant,
-    }
 
     let new_meta = |doc: &Document| BufferMeta {
         id: doc.id(),
@@ -3270,6 +3289,9 @@ pub fn command_palette(cx: &mut Context) {
                     MappableCommand::Static { name, .. } => (*name).into(),
                     MappableCommand::Macro { .. } => {
                         unreachable!("macros aren't included in the command palette")
+                    }
+                    MappableCommand::Component { .. } => {
+                        unreachable!("components aren't included in the command palette")
                     }
                 }),
                 ui::PickerColumn::new(
