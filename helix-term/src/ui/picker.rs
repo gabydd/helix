@@ -229,6 +229,7 @@ impl<T, D> Column<T, D> {
 type DynQueryCallback<T, D> =
     fn(&str, &mut Editor, Arc<D>, &Injector<T, D>) -> BoxFuture<'static, anyhow::Result<()>>;
 
+pub const PICKER_ID: &'static str = "picker";
 pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     columns: Arc<[Column<T, D>]>,
     primary_column: usize,
@@ -259,6 +260,9 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     /// An event handler for syntax highlighting the currently previewed file.
     preview_highlight_handler: Sender<Arc<Path>>,
     dynamic_query_handler: Option<Sender<DynamicQueryChange>>,
+
+    /// A unique identifier for the picker as a Component
+    id: &'static str,
 }
 
 impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
@@ -380,6 +384,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             file_fn: None,
             preview_highlight_handler: PreviewHighlightHandler::<T, D>::default().spawn(),
             dynamic_query_handler: None,
+            id: PICKER_ID,
         }
     }
 
@@ -428,6 +433,11 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         };
         helix_event::send_blocking(&handler, event);
         self.dynamic_query_handler = Some(handler);
+        self
+    }
+
+    pub fn with_id(mut self, id: &'static str) -> Self {
+        self.id = id;
         self
     }
 
@@ -1084,7 +1094,7 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
     }
 
     fn id(&self) -> Option<&'static str> {
-        Some(ID)
+        Some(self.id)
     }
 }
 impl<T: 'static + Send + Sync, D> Drop for Picker<T, D> {
