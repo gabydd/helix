@@ -61,6 +61,7 @@ type Terminal = tui::terminal::Terminal<TerminalBackend>;
 
 pub struct Application {
     compositor: Compositor,
+    keymaps: Keymaps,
     terminal: Terminal,
     pub editor: Editor,
 
@@ -151,7 +152,8 @@ impl Application {
         let keys = Box::new(Map::new(Arc::clone(&config), |config: &Config| {
             &config.keys
         }));
-        let editor_view = Box::new(ui::EditorView::new(Keymaps::new(keys)));
+        let keymaps = Keymaps::new(keys);
+        let editor_view = Box::new(ui::EditorView::default());
         compositor.push(editor_view);
 
         if args.load_tutor {
@@ -255,6 +257,7 @@ impl Application {
         .context("build signal handler")?;
 
         let app = Self {
+            keymaps,
             compositor,
             terminal,
             editor,
@@ -279,6 +282,7 @@ impl Application {
         }
 
         let mut cx = crate::compositor::Context {
+            keymaps: &mut self.keymaps,
             editor: &mut self.editor,
             jobs: &mut self.jobs,
             scroll: None,
@@ -546,6 +550,7 @@ impl Application {
 
     pub async fn handle_idle_timeout(&mut self) {
         let mut cx = crate::compositor::Context {
+            keymaps: &mut self.keymaps,
             editor: &mut self.editor,
             jobs: &mut self.jobs,
             scroll: None,
@@ -642,6 +647,7 @@ impl Application {
 
     pub async fn handle_terminal_events(&mut self, event: std::io::Result<CrosstermEvent>) {
         let mut cx = crate::compositor::Context {
+            keymaps: &mut self.keymaps,
             editor: &mut self.editor,
             jobs: &mut self.jobs,
             scroll: None,

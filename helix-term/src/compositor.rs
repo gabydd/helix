@@ -15,13 +15,14 @@ pub enum EventResult {
     Consumed(Option<Callback>),
 }
 
-use crate::job::Jobs;
 use crate::ui::picker;
+use crate::{job::Jobs, keymap::Keymaps};
 use helix_view::Editor;
 
 pub use helix_view::input::Event;
 
 pub struct Context<'a> {
+    pub keymaps: &'a mut Keymaps,
     pub editor: &'a mut Editor,
     pub scroll: Option<usize>,
     pub jobs: &'a mut Jobs,
