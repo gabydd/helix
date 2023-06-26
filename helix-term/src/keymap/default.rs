@@ -401,10 +401,15 @@ pub fn default() -> HashMap<Domain, KeyTrie> {
         "C-x" => close_buffer_in_buffer_picker,
     });
 
+    let picker = keymap!({ "Picker"
+        "C-z" => page_down_picker,
+    });
+
     hashmap!(
         Domain::Mode(Mode::Normal) => normal,
         Domain::Mode(Mode::Select) => select,
         Domain::Mode(Mode::Insert) => insert,
         Domain::Component("buffer-picker") => buffer_picker,
+        Domain::Component("picker") => picker,
     )
 }

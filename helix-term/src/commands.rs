@@ -197,6 +197,11 @@ where
 
 use helix_view::{align_view, Align};
 
+pub enum ComponentRef<'a> {
+    Picker(&'a mut dyn crate::ui::picker::AnyPicker),
+    Component(&'a mut dyn crate::compositor::Component),
+}
+
 /// MappableCommands are commands that can be bound to keys, executable in
 /// normal, insert or select mode.
 ///
@@ -225,7 +230,7 @@ pub enum MappableCommand {
     },
     Component {
         name: &'static str,
-        fun: fn(&mut dyn crate::compositor::Component, &mut compositor::Context) -> EventResult,
+        fun: fn(ComponentRef, &mut compositor::Context) -> EventResult,
         doc: &'static str,
     },
 }
@@ -310,6 +315,13 @@ impl MappableCommand {
         name: "close_buffer_in_buffer_picker",
         fun: crate::ui::picker::close_buffer_in_buffer_picker,
         doc: "Closes the currently focused buffer",
+    };
+
+    #[allow(non_upper_case_globals)]
+    pub const page_down_picker: Self = Self::Component {
+        name: "page_down_picker",
+        fun: crate::ui::picker::page_down,
+        doc: "page down picker",
     };
 
     #[rustfmt::skip]
