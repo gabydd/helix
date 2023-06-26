@@ -157,6 +157,11 @@ where
 
 use helix_view::{align_view, Align};
 
+pub enum ComponentRef<'a> {
+    Picker(&'a mut dyn crate::ui::picker::AnyPicker),
+    Component(&'a mut dyn crate::compositor::Component),
+}
+
 /// A MappableCommand is either a static command like "jump_view_up" or a Typable command like
 /// :format. It causes a side-effect on the state (usually by creating and applying a transaction).
 /// Both of these types of commands can be mapped with keybindings in the config.toml.
@@ -174,7 +179,7 @@ pub enum MappableCommand {
     },
     Component {
         name: &'static str,
-        fun: fn(&mut dyn crate::compositor::Component, &mut compositor::Context) -> EventResult,
+        fun: fn(ComponentRef, &mut compositor::Context) -> EventResult,
         doc: &'static str,
     },
 }
@@ -240,6 +245,13 @@ impl MappableCommand {
         name: "close_buffer_in_buffer_picker",
         fun: crate::ui::picker::close_buffer_in_buffer_picker,
         doc: "Closes the currently focused buffer",
+    };
+
+    #[allow(non_upper_case_globals)]
+    pub const page_down_picker: Self = Self::Component {
+        name: "page_down_picker",
+        fun: crate::ui::picker::page_down,
+        doc: "page down picker",
     };
 
     #[rustfmt::skip]

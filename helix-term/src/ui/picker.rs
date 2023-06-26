@@ -1,5 +1,6 @@
 use crate::{
     alt,
+    commands::ComponentRef,
     compositor::{self, Component, Compositor, Context, Event, EventResult},
     ctrl,
     job::Callback,
@@ -22,7 +23,10 @@ use tui::{
 use fuzzy_matcher::skim::SkimMatcherV2 as Matcher;
 use tui::widgets::Widget;
 
-use std::cmp::{self, Ordering};
+use std::{
+    any::Any,
+    cmp::{self, Ordering},
+};
 use std::{collections::HashMap, io::Read, path::PathBuf};
 
 use crate::ui::{Prompt, PromptEvent};
@@ -115,6 +119,21 @@ impl Preview<'_, '_> {
 }
 
 pub const PICKER_ID: &'static str = "picker";
+
+pub trait AnyPicker {
+    /// Downcast self to a `Any`.
+    fn as_any(&self) -> &dyn Any;
+
+    /// Downcast self to a mutable `Any`.
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+    fn move_by(&mut self, amount: usize, direction: Direction);
+    fn page_up(&mut self);
+    fn page_down(&mut self);
+    fn to_start(&mut self);
+    fn to_end(&mut self);
+    fn toggle_preview(&mut self);
+    fn call_fn_with_selection(&mut self, cx: &mut Context, action: Action);
+}
 
 pub struct Picker<T: Item> {
     options: Vec<T>,
@@ -325,56 +344,6 @@ impl<T: Item + 'static> Picker<T> {
 
         self.matches.sort_unstable();
     }
-
-    /// Move the cursor by a number of lines, either down (`Forward`) or up (`Backward`)
-    pub fn move_by(&mut self, amount: usize, direction: Direction) {
-        let len = self.matches.len();
-
-        if len == 0 {
-            // No results, can't move.
-            return;
-        }
-
-        match direction {
-            Direction::Forward => {
-                self.cursor = self.cursor.saturating_add(amount) % len;
-            }
-            Direction::Backward => {
-                self.cursor = self.cursor.saturating_add(len).saturating_sub(amount) % len;
-            }
-        }
-    }
-
-    /// Move the cursor down by exactly one page. After the last page comes the first page.
-    pub fn page_up(&mut self) {
-        self.move_by(self.completion_height as usize, Direction::Backward);
-    }
-
-    /// Move the cursor up by exactly one page. After the first page comes the last page.
-    pub fn page_down(&mut self) {
-        self.move_by(self.completion_height as usize, Direction::Forward);
-    }
-
-    /// Move the cursor to the first entry
-    pub fn to_start(&mut self) {
-        self.cursor = 0;
-    }
-
-    /// Move the cursor to the last entry
-    pub fn to_end(&mut self) {
-        self.cursor = self.matches.len().saturating_sub(1);
-    }
-
-    pub fn selection(&self) -> Option<&T> {
-        self.matches
-            .get(self.cursor)
-            .map(|pmatch| &self.options[pmatch.index])
-    }
-
-    pub fn toggle_preview(&mut self) {
-        self.show_preview = !self.show_preview;
-    }
-
     fn prompt_handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
         if let EventResult::Consumed(_) = self.prompt.handle_event(event, cx) {
             // TODO: recalculate only if pattern changed
@@ -761,6 +730,71 @@ impl<T: Item + 'static> Picker<T> {
             );
         }
     }
+
+    pub fn selection(&self) -> Option<&T> {
+        self.matches
+            .get(self.cursor)
+            .map(|pmatch| &self.options[pmatch.index])
+    }
+}
+impl<T: Item + 'static> AnyPicker for Picker<T> {
+    /// Downcast self to a `Any`.
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    /// Downcast self to a mutable `Any`.
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+    /// Move the cursor by a number of lines, either down (`Forward`) or up (`Backward`)
+    fn move_by(&mut self, amount: usize, direction: Direction) {
+        let len = self.matches.len();
+
+        if len == 0 {
+            // No results, can't move.
+            return;
+        }
+
+        match direction {
+            Direction::Forward => {
+                self.cursor = self.cursor.saturating_add(amount) % len;
+            }
+            Direction::Backward => {
+                self.cursor = self.cursor.saturating_add(len).saturating_sub(amount) % len;
+            }
+        }
+    }
+
+    /// Move the cursor down by exactly one page. After the last page comes the first page.
+    fn page_up(&mut self) {
+        self.move_by(self.completion_height as usize, Direction::Backward);
+    }
+
+    /// Move the cursor up by exactly one page. After the first page comes the last page.
+    fn page_down(&mut self) {
+        self.move_by(self.completion_height as usize, Direction::Forward);
+    }
+
+    /// Move the cursor to the first entry
+    fn to_start(&mut self) {
+        self.cursor = 0;
+    }
+
+    /// Move the cursor to the last entry
+    fn to_end(&mut self) {
+        self.cursor = self.matches.len().saturating_sub(1);
+    }
+
+    fn toggle_preview(&mut self) {
+        self.show_preview = !self.show_preview;
+    }
+
+    fn call_fn_with_selection(&mut self, cx: &mut Context, action: Action) {
+        if let Some(option) = self.selection() {
+            (self.callback_fn)(cx, option, action);
+        }
+    }
 }
 
 impl<T: Item + 'static> Component for Picker<T> {
@@ -807,7 +841,19 @@ impl<T: Item + 'static> Component for Picker<T> {
                 fun,
                 ..
             }) => {
-                if let EventResult::Consumed(callback) = fun(self, ctx) {
+                if let EventResult::Consumed(callback) = fun(ComponentRef::Picker(self), ctx) {
+                    return EventResult::Consumed(callback);
+                }
+            }
+            _ => (),
+        }
+
+        match ctx.keymaps.get_by_component_id(PICKER_ID, key_event) {
+            crate::keymap::KeymapResult::Matched(crate::keymap::MappableCommand::Component {
+                fun,
+                ..
+            }) => {
+                if let EventResult::Consumed(callback) = fun(ComponentRef::Picker(self), ctx) {
                     return EventResult::Consumed(callback);
                 }
             }
@@ -1000,10 +1046,98 @@ impl<T: Item + Send + 'static> Component for DynamicPicker<T> {
     }
 }
 
-pub fn close_buffer_in_buffer_picker(
-    component: &mut dyn Component,
-    cx: &mut Context,
-) -> EventResult {
+pub fn move_up_one_picker(component: ComponentRef, _cx: &mut Context) -> EventResult {
+    let ComponentRef::Picker(picker) = component
+           else {
+                return EventResult::Ignored(None);
+            };
+    picker.move_by(1, Direction::Backward);
+    return EventResult::Consumed(None);
+}
+pub fn move_down_one_picker(component: ComponentRef, _cx: &mut Context) -> EventResult {
+    let ComponentRef::Picker(picker) = component
+            else {
+                return EventResult::Ignored(None);
+            };
+    picker.move_by(1, Direction::Forward);
+    EventResult::Consumed(None)
+}
+pub fn page_down(component: ComponentRef, _cx: &mut Context) -> EventResult {
+    let ComponentRef::Picker(picker) = component
+            else {
+                return EventResult::Ignored(None);
+            };
+    picker.page_down();
+    EventResult::Consumed(None)
+}
+pub fn page_up(component: ComponentRef, _cx: &mut Context) -> EventResult {
+    let ComponentRef::Picker(picker) = component
+            else {
+                return EventResult::Ignored(None);
+            };
+    picker.page_up();
+    EventResult::Consumed(None)
+}
+pub fn move_to_start(component: ComponentRef, _cx: &mut Context) -> EventResult {
+    let ComponentRef::Picker(picker) = component
+            else {
+                return EventResult::Ignored(None);
+            };
+    picker.to_start();
+    EventResult::Consumed(None)
+}
+pub fn move_to_end(component: ComponentRef, _cx: &mut Context) -> EventResult {
+    let ComponentRef::Picker(picker) = component
+            else {
+                return EventResult::Ignored(None);
+            };
+    picker.to_end();
+    EventResult::Consumed(None)
+}
+
+pub fn load(component: ComponentRef, cx: &mut Context) -> EventResult {
+    let ComponentRef::Picker(picker) = component
+            else {
+                return EventResult::Ignored(None);
+            };
+    picker.call_fn_with_selection(cx, Action::Load);
+    EventResult::Consumed(None)
+}
+pub fn replace(component: ComponentRef, cx: &mut Context) -> EventResult {
+    let ComponentRef::Picker(picker) = component
+            else {
+                return EventResult::Ignored(None);
+            };
+    picker.call_fn_with_selection(cx, Action::Replace);
+    return close_fn();
+}
+pub fn horizontal_split(component: ComponentRef, cx: &mut Context) -> EventResult {
+    let ComponentRef::Picker(picker) = component
+            else {
+                return EventResult::Ignored(None);
+            };
+    picker.call_fn_with_selection(cx, Action::HorizontalSplit);
+    return close_fn();
+}
+pub fn vertical_split(component: ComponentRef, cx: &mut Context) -> EventResult {
+    let ComponentRef::Picker(picker) = component
+            else {
+                return EventResult::Ignored(None);
+            };
+    picker.call_fn_with_selection(cx, Action::VerticalSplit);
+    return close_fn();
+}
+pub fn toggle_preview(component: ComponentRef, _cx: &mut Context) -> EventResult {
+    let ComponentRef::Picker(picker) = component
+            else {
+                return EventResult::Ignored(None);
+            };
+    picker.toggle_preview();
+    EventResult::Consumed(None)
+}
+
+pub fn close_buffer_in_buffer_picker(component: ComponentRef, cx: &mut Context) -> EventResult {
+    let ComponentRef::Picker(component) = component else { return EventResult::Ignored(None)};
     let Some(picker) = component
         .as_any_mut()
         .downcast_mut::<crate::commands::BufferPicker>()
