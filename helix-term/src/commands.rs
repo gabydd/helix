@@ -200,6 +200,7 @@ use helix_view::{align_view, Align};
 
 pub enum ComponentRef<'a> {
     Picker(&'a mut dyn crate::ui::picker::AnyPicker),
+    Menu(&'a mut dyn crate::ui::menu::AnyMenu),
     Component(&'a mut dyn crate::compositor::Component),
 }
 
@@ -340,6 +341,10 @@ impl MappableCommand {
         ui::picker, toggle_preview, "page up picker",
         ui::picker, close, "Close the focused picker",
         // ui::picker, close_buffer, "Close the currently focused buffer",
+        ui::menu, move_up, "Close the focused menu",
+        ui::menu, move_down, "Close the focused menu",
+        ui::menu, enter, "Close the focused menu",
+        ui::menu, close, "Close the focused menu",
     );
 
     #[rustfmt::skip]

@@ -416,11 +416,19 @@ pub fn default() -> HashMap<Domain, KeyTrie> {
         "C-t" => picker_toggle_preview,
     });
 
+    let menu = keymap!({ "Menu"
+        "S-tab" | "up" | "C-p" => menu_move_up,
+        "tab" | "down" | "C-n" => menu_move_down,
+        "esc" | "C-c" => menu_close,
+        "ret" => menu_enter,
+    });
+
     hashmap!(
         Domain::Mode(Mode::Normal) => normal,
         Domain::Mode(Mode::Select) => select,
         Domain::Mode(Mode::Insert) => insert,
         // Domain::Component("buffer-picker") => buffer_picker,
         Domain::Component("picker") => picker,
+        Domain::Component("menu") => menu,
     )
 }

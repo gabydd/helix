@@ -21,7 +21,7 @@ pub use completion::Completion;
 pub use editor::EditorView;
 use helix_stdx::rope;
 pub use markdown::Markdown;
-pub use menu::Menu;
+pub use menu::{Menu, MENU_ID};
 pub use picker::{Column as PickerColumn, FileLocation, Picker, PICKER_ID};
 pub use popup::Popup;
 pub use prompt::{Prompt, PromptEvent};

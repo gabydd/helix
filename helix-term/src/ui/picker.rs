@@ -1213,31 +1213,6 @@ pub fn close(_component: ComponentRef, _cx: &mut Context) -> EventResult {
     close_fn()
 }
 
-// Now this is a problem. It compiles ok.
-// We can probably even specify it in the default keymap:
-//
-//     MappableCommand::Component { name: "..", doc: "..", fun: crate::ui::picker::to_start<PathBuf> }
-//
-// But how do we represent this in keymap config? Do we do namespacing in the
-// command names and end up with tens of commands for scrolling each picker?
-//
-//     MappableCommand::Component {
-//         name: "file_picker::to_start",
-//         doc: "..",
-//         crate::ui::picker::to_start<PathBuf>,
-//     },
-//     MappableCommand::Component {
-//         name: "buffer_picker::to_start",
-//         doc: "..",
-//         crate::ui::picker::to_start<BufferMeta>,
-//     },
-//
-// Can we use a macro to close over the verbose parts of this?
-//
-// Can we do something clever with a hypothetical AnyPicker interface
-// similar to AnyComponent? Will we have to do that for every Component
-// that uses generics?
-
 fn close_fn() -> EventResult {
     EventResult::Consumed(Some(Box::new(|compositor: &mut Compositor, _ctx| {
         // remove the layer
