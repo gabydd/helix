@@ -1,6 +1,7 @@
 use std::{borrow::Cow, path::PathBuf};
 
 use crate::{
+    commands::ComponentRef,
     compositor::{Callback, Component, Compositor, Context, Event, EventResult},
     ctrl, key, shift,
 };
@@ -45,6 +46,8 @@ impl Item for PathBuf {
 
 pub type MenuCallback<T> = Box<dyn Fn(&mut Editor, Option<&T>, MenuEvent)>;
 
+pub const MENU_ID: &'static str = "menu";
+
 pub trait AnyMenu {
     fn move_down(&mut self);
     fn move_up(&mut self);
@@ -70,6 +73,9 @@ pub struct Menu<T: Item> {
     size: (u16, u16),
     viewport: (u16, u16),
     recalculate: bool,
+
+    /// A unique identifier for the menu as a Component
+    id: &'static str,
 }
 
 impl<T: Item> Menu<T> {
@@ -95,6 +101,7 @@ impl<T: Item> Menu<T> {
             size: (0, 0),
             viewport: (0, 0),
             recalculate: true,
+            id: MENU_ID,
         }
     }
 
@@ -263,6 +270,18 @@ impl<T: Item + 'static> Component for Menu<T> {
             _ => return EventResult::Ignored(None),
         };
 
+        match cx.keymaps.get_by_component_id(self.id, event) {
+            crate::keymap::KeymapResult::Matched(crate::keymap::MappableCommand::Component {
+                fun,
+                ..
+            }) => {
+                if let EventResult::Consumed(callback) = fun(ComponentRef::Menu(self), cx) {
+                    return EventResult::Consumed(callback);
+                }
+            }
+            _ => (),
+        }
+
         let close_fn: Option<Callback> = Some(Box::new(|compositor: &mut Compositor, _| {
             // remove the layer
             compositor.pop();
@@ -406,4 +425,45 @@ impl<T: Item + 'static> Component for Menu<T> {
             }
         }
     }
+}
+
+pub fn move_up(component: ComponentRef, cx: &mut Context) -> EventResult {
+    let ComponentRef::Menu(menu) = component
+            else {
+                return EventResult::Ignored(None);
+            };
+    menu.move_up();
+    menu.call_fn_with_selection(cx.editor, MenuEvent::Update);
+    return EventResult::Consumed(None);
+}
+
+pub fn move_down(component: ComponentRef, cx: &mut Context) -> EventResult {
+    let ComponentRef::Menu(menu) = component
+            else {
+                return EventResult::Ignored(None);
+            };
+    menu.move_down();
+    menu.call_fn_with_selection(cx.editor, MenuEvent::Update);
+    return EventResult::Consumed(None);
+}
+
+pub fn enter(component: ComponentRef, cx: &mut Context) -> EventResult {
+    let ComponentRef::Menu(menu) = component
+            else {
+                return EventResult::Ignored(None);
+            };
+    if menu.call_if_selection(cx.editor, MenuEvent::Validate) {
+        return EventResult::Consumed(close_fn());
+    }
+    EventResult::Ignored(close_fn())
+}
+
+pub fn close(_component: ComponentRef, _cx: &mut Context) -> EventResult {
+    EventResult::Consumed(close_fn())
+}
+
+fn close_fn() -> Option<Callback> {
+    Some(Box::new(|compositor: &mut Compositor, _ctx| {
+        compositor.pop();
+    }))
 }

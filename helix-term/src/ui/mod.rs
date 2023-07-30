@@ -20,7 +20,7 @@ use crate::job::{self, Callback};
 pub use completion::{Completion, CompletionItem};
 pub use editor::EditorView;
 pub use markdown::Markdown;
-pub use menu::Menu;
+pub use menu::{Menu, MENU_ID};
 pub use picker::{DynamicPicker, FileLocation, Picker, DYNAMIC_PICKER_ID, PICKER_ID};
 pub use popup::Popup;
 pub use prompt::{Prompt, PromptEvent};

@@ -279,9 +279,10 @@ pub enum Domain {
     Component(&'static str),
 }
 
-const REMAPPABLE_COMPONENTS: [&'static str; 3] = [
+const REMAPPABLE_COMPONENTS: [&'static str; 4] = [
     crate::ui::DYNAMIC_PICKER_ID,
     crate::ui::PICKER_ID,
+    crate::ui::MENU_ID,
     // TODO: make it a constant
     "buffer-picker",
 ];
