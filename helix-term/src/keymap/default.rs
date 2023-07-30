@@ -397,19 +397,30 @@ pub fn default() -> HashMap<Domain, KeyTrie> {
         "end" => goto_line_end_newline,
     });
 
-    let buffer_picker = keymap!({ "Buffer picker"
-        "C-x" => close_buffer_in_buffer_picker,
-    });
+    // let buffer_picker = keymap!({ "Buffer picker"
+    //     "C-x" => picker_close_buffer,
+    // });
 
     let picker = keymap!({ "Picker"
-        "C-z" => page_down_picker,
+        "S-tab" | "up" | "C-p" => picker_move_up,
+        "tab" | "down" | "C-n" => picker_move_down,
+        "pagedown" | "C-d" => picker_page_down,
+        "pageup" | "C-u" => picker_page_up,
+        "home" => picker_to_start,
+        "end" => picker_to_end,
+        "esc" | "C-c" => picker_close,
+        "A-ret" => picker_load,
+        "ret" => picker_replace,
+        "C-s" => picker_horizontal_split,
+        "C-v" => picker_vertical_split,
+        "C-t" => picker_toggle_preview,
     });
 
     hashmap!(
         Domain::Mode(Mode::Normal) => normal,
         Domain::Mode(Mode::Select) => select,
         Domain::Mode(Mode::Insert) => insert,
-        Domain::Component("buffer-picker") => buffer_picker,
+        // Domain::Component("buffer-picker") => buffer_picker,
         Domain::Component("picker") => picker,
     )
 }

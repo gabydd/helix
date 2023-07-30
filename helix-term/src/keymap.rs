@@ -353,7 +353,7 @@ impl Keymaps {
 
     pub fn contains_key(&self, mode: Mode, key: KeyEvent) -> bool {
         let keymaps = &*self.map();
-        let keymap = &keymaps[&mode];
+        let keymap = &keymaps[&Domain::Mode(mode)];
         keymap
             .search(self.pending())
             .and_then(KeyTrie::node)

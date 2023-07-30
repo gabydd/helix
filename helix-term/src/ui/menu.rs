@@ -33,6 +33,13 @@ pub trait Item: Sync + Send + 'static {
 
 pub type MenuCallback<T> = Box<dyn Fn(&mut Editor, Option<&T>, MenuEvent)>;
 
+pub trait AnyMenu {
+    fn move_down(&mut self);
+    fn move_up(&mut self);
+    fn call_fn_with_selection(&mut self, editor: &mut Editor, event: MenuEvent);
+    fn call_if_selection(&mut self, editor: &mut Editor, event: MenuEvent) -> bool;
+}
+
 pub struct Menu<T: Item> {
     options: Vec<T>,
     editor_data: T::Data,
@@ -128,21 +135,6 @@ impl<T: Item> Menu<T> {
         self.scroll = 0;
     }
 
-    pub fn move_up(&mut self) {
-        let len = self.matches.len();
-        let max_index = len.saturating_sub(1);
-        let pos = self.cursor.map_or(max_index, |i| (i + max_index) % len) % len;
-        self.cursor = Some(pos);
-        self.adjust_scroll();
-    }
-
-    pub fn move_down(&mut self) {
-        let len = self.matches.len();
-        let pos = self.cursor.map_or(0, |i| i + 1) % len;
-        self.cursor = Some(pos);
-        self.adjust_scroll();
-    }
-
     fn recalculate_size(&mut self, viewport: (u16, u16)) {
         let n = self
             .options
@@ -224,6 +216,35 @@ impl<T: Item> Menu<T> {
 
     pub fn len(&self) -> usize {
         self.matches.len()
+    }
+}
+
+impl<T: Item> AnyMenu for Menu<T> {
+    fn move_up(&mut self) {
+        let len = self.matches.len();
+        let max_index = len.saturating_sub(1);
+        let pos = self.cursor.map_or(max_index, |i| (i + max_index) % len) % len;
+        self.cursor = Some(pos);
+        self.adjust_scroll();
+    }
+
+    fn move_down(&mut self) {
+        let len = self.matches.len();
+        let pos = self.cursor.map_or(0, |i| i + 1) % len;
+        self.cursor = Some(pos);
+        self.adjust_scroll();
+    }
+
+    fn call_fn_with_selection(&mut self, editor: &mut Editor, event: MenuEvent) {
+        (self.callback_fn)(editor, self.selection(), event);
+    }
+
+    fn call_if_selection(&mut self, editor: &mut Editor, event: MenuEvent) -> bool {
+        if let Some(selection) = self.selection() {
+            (self.callback_fn)(editor, Some(selection), event);
+            return true;
+        }
+        false
     }
 }
 

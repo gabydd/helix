@@ -28,7 +28,7 @@ use helix_view::{
 use crate::{
     compositor::{self, Compositor},
     job::Callback,
-    ui::{self, overlay::overlaid, FileLocation, Picker, Popup, PromptEvent},
+    ui::{self, menu::AnyMenu, overlay::overlaid, FileLocation, Picker, Popup, PromptEvent},
 };
 
 use std::{

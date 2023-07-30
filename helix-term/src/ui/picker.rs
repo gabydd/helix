@@ -2,10 +2,8 @@ mod handlers;
 mod query;
 
 use crate::{
-    alt,
     commands::ComponentRef,
     compositor::{self, Component, Compositor, Context, Event, EventResult},
-    ctrl, key, shift,
     ui::{
         self,
         document::{render_document, LinePos, TextRenderer},
@@ -1061,72 +1059,6 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         }
 
         match key_event {
-            shift!(Tab) | key!(Up) | ctrl!('p') => {
-                self.move_by(1, Direction::Backward);
-            }
-            key!(Tab) | key!(Down) | ctrl!('n') => {
-                self.move_by(1, Direction::Forward);
-            }
-            key!(PageDown) | ctrl!('d') => {
-                self.page_down();
-            }
-            key!(PageUp) | ctrl!('u') => {
-                self.page_up();
-            }
-            key!(Home) => {
-                self.to_start();
-            }
-            key!(End) => {
-                self.to_end();
-            }
-            key!(Esc) | ctrl!('c') => return close_fn(self),
-            alt!(Enter) => {
-                if let Some(option) = self.selection() {
-                    (self.callback_fn)(ctx, option, Action::Load);
-                }
-            }
-            key!(Enter) => {
-                // If the prompt has a history completion and is empty, use enter to accept
-                // that completion
-                if let Some(completion) = self
-                    .prompt
-                    .first_history_completion(ctx.editor)
-                    .filter(|_| self.prompt.line().is_empty())
-                {
-                    self.prompt.set_line(completion.to_string(), ctx.editor);
-                    // Inserting from the history register is a paste.
-                    self.handle_prompt_change(true);
-                } else {
-                    if let Some(option) = self.selection() {
-                        (self.callback_fn)(ctx, option, Action::Replace);
-                    }
-                    if let Some(history_register) = self.prompt.history_register() {
-                        if let Err(err) = ctx
-                            .editor
-                            .registers
-                            .push(history_register, self.primary_query().to_string())
-                        {
-                            ctx.editor.set_error(err.to_string());
-                        }
-                    }
-                    return close_fn(self);
-                }
-            }
-            ctrl!('s') => {
-                if let Some(option) = self.selection() {
-                    (self.callback_fn)(ctx, option, Action::HorizontalSplit);
-                }
-                return close_fn(self);
-            }
-            ctrl!('v') => {
-                if let Some(option) = self.selection() {
-                    (self.callback_fn)(ctx, option, Action::VerticalSplit);
-                }
-                return close_fn(self);
-            }
-            ctrl!('t') => {
-                self.toggle_preview();
-            }
             _ => {
                 self.prompt_handle_event(event, ctx);
             }
@@ -1164,14 +1096,14 @@ impl<T: 'static + Send + Sync, D> Drop for Picker<T, D> {
 
 type PickerCallback<T> = Box<dyn Fn(&mut Context, &T, Action)>;
 
-pub fn move_up_one_picker(component: ComponentRef, _cx: &mut Context) -> EventResult {
+pub fn move_up(component: ComponentRef, _cx: &mut Context) -> EventResult {
     let ComponentRef::Picker(picker) = component else {
         return EventResult::Ignored(None);
     };
     picker.move_by(1, Direction::Backward);
     return EventResult::Consumed(None);
 }
-pub fn move_down_one_picker(component: ComponentRef, _cx: &mut Context) -> EventResult {
+pub fn move_down(component: ComponentRef, _cx: &mut Context) -> EventResult {
     let ComponentRef::Picker(picker) = component else {
         return EventResult::Ignored(None);
     };
@@ -1192,14 +1124,14 @@ pub fn page_up(component: ComponentRef, _cx: &mut Context) -> EventResult {
     picker.page_up();
     EventResult::Consumed(None)
 }
-pub fn move_to_start(component: ComponentRef, _cx: &mut Context) -> EventResult {
+pub fn to_start(component: ComponentRef, _cx: &mut Context) -> EventResult {
     let ComponentRef::Picker(picker) = component else {
         return EventResult::Ignored(None);
     };
     picker.to_start();
     EventResult::Consumed(None)
 }
-pub fn move_to_end(component: ComponentRef, _cx: &mut Context) -> EventResult {
+pub fn to_end(component: ComponentRef, _cx: &mut Context) -> EventResult {
     let ComponentRef::Picker(picker) = component else {
         return EventResult::Ignored(None);
     };
@@ -1243,41 +1175,41 @@ pub fn toggle_preview(component: ComponentRef, _cx: &mut Context) -> EventResult
     EventResult::Consumed(None)
 }
 
-pub fn close_buffer_in_buffer_picker(component: ComponentRef, cx: &mut Context) -> EventResult {
-    let ComponentRef::Picker(component) = component else {
-        return EventResult::Ignored(None);
-    };
-    let Some(picker) = component
-        .as_any_mut()
-        .downcast_mut::<crate::commands::BufferPicker>()
-    else {
-        return EventResult::Ignored(None);
-    };
-    let Some(id) = picker.selection().map(|meta| meta.id) else {
-        return EventResult::Ignored(None);
-    };
-    match cx.editor.close_document(id, false) {
-        Ok(_) => {
-            picker.options.retain(|item| item.id != id);
-            if picker.options.is_empty() {
-                return close_fn();
-            }
-            picker.cursor = picker.cursor.saturating_sub(1);
-            picker.force_score();
-        }
-        // TODO: impl From<CloseError> for anyhow::Error
-        Err(_err) => cx.editor.set_error("Failed to close buffer"),
-    }
+// pub fn close_buffer(component: ComponentRef, cx: &mut Context) -> EventResult {
+//     let ComponentRef::Picker(component) = component else {
+//         return EventResult::Ignored(None);
+//     };
+//     let Some(picker) = component
+//         .as_any_mut()
+//         .downcast_mut::<crate::commands::BufferPicker>()
+//     else {
+//         return EventResult::Ignored(None);
+//     };
+//     let Some(id) = picker.selection().map(|meta| meta.id) else {
+//         return EventResult::Ignored(None);
+//     };
+//     match cx.editor.close_document(id, false) {
+//         Ok(_) => {
+//             picker.options.retain(|item| item.id != id);
+//             if picker.options.is_empty() {
+//                 return close_fn();
+//             }
+//             picker.cursor = picker.cursor.saturating_sub(1);
+//             picker.force_score();
+//         }
+//         // TODO: impl From<CloseError> for anyhow::Error
+//         Err(_err) => cx.editor.set_error("Failed to close buffer"),
+//     }
 
-    EventResult::Consumed(None)
-}
+//     EventResult::Consumed(None)
+// }
 
 // Above command is cool because it's for one specific picker.
 
 // This is also cool because it doesn't even need to interact with
 // the picker, so we don't need concrete types:
 
-pub fn close_picker(_component: &mut dyn Component, _cx: &mut Context) -> EventResult {
+pub fn close(_component: ComponentRef, _cx: &mut Context) -> EventResult {
     close_fn()
 }
 
@@ -1305,19 +1237,6 @@ pub fn close_picker(_component: &mut dyn Component, _cx: &mut Context) -> EventR
 // Can we do something clever with a hypothetical AnyPicker interface
 // similar to AnyComponent? Will we have to do that for every Component
 // that uses generics?
-
-pub fn to_start<T: ui::menu::Item + 'static, D: 'static>(
-    component: &mut dyn Component,
-    _cx: &mut Context,
-) -> EventResult {
-    let Some(picker) = component.as_any_mut().downcast_mut::<Picker<T, D>>() else {
-        return EventResult::Ignored(None);
-    };
-
-    picker.cursor = 0;
-
-    EventResult::Consumed(None)
-}
 
 fn close_fn() -> EventResult {
     EventResult::Consumed(Some(Box::new(|compositor: &mut Compositor, _ctx| {

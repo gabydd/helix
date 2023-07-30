@@ -86,6 +86,7 @@ use url::Url;
 use grep_regex::RegexMatcherBuilder;
 use grep_searcher::{sinks, BinaryDetection, SearcherBuilder};
 use ignore::{DirEntry, WalkBuilder, WalkState};
+use paste::paste;
 
 pub type OnKeyCallback = Box<dyn FnOnce(&mut Context, KeyEvent)>;
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -252,6 +253,21 @@ macro_rules! static_commands {
     }
 }
 
+macro_rules! component_commands {
+    ( $($first:ident::$second:ident, $name:ident, $doc:literal,)* ) => {
+        $(
+            paste! {
+                #[allow(non_upper_case_globals)]
+                pub const [<$second _ $name>]: Self = Self::Component {
+                    name: stringify!(<$second _ $name>),
+                    fun: $first::$second::$name,
+                    doc: $doc
+                };
+            }
+        )*
+    }
+}
+
 impl MappableCommand {
     pub fn execute(&self, cx: &mut Context) {
         match &self {
@@ -309,20 +325,22 @@ impl MappableCommand {
         }
     }
 
-    // TODO: macro for this...
-    #[allow(non_upper_case_globals)]
-    pub const close_buffer_in_buffer_picker: Self = Self::Component {
-        name: "close_buffer_in_buffer_picker",
-        fun: crate::ui::picker::close_buffer_in_buffer_picker,
-        doc: "Closes the currently focused buffer",
-    };
-
-    #[allow(non_upper_case_globals)]
-    pub const page_down_picker: Self = Self::Component {
-        name: "page_down_picker",
-        fun: crate::ui::picker::page_down,
-        doc: "page down picker",
-    };
+    #[rustfmt::skip]
+    component_commands!(
+        ui::picker, move_up, "move up one item",
+        ui::picker, move_down, "move down one item",
+        ui::picker, page_down, "page down picker",
+        ui::picker, page_up, "page up picker",
+        ui::picker, to_start, "page up picker",
+        ui::picker, to_end, "page up picker",
+        ui::picker, load, "page up picker",
+        ui::picker, replace, "page up picker",
+        ui::picker, horizontal_split, "page up picker",
+        ui::picker, vertical_split, "page up picker",
+        ui::picker, toggle_preview, "page up picker",
+        ui::picker, close, "Close the focused picker",
+        // ui::picker, close_buffer, "Close the currently focused buffer",
+    );
 
     #[rustfmt::skip]
     static_commands!(

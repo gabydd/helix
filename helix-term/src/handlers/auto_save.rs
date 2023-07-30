@@ -22,6 +22,7 @@ use crate::{
     commands, compositor,
     events::OnModeSwitch,
     job::{self, Jobs},
+    keymap::Keymaps,
 };
 
 #[derive(Debug)]
@@ -82,6 +83,7 @@ impl helix_event::AsyncHook for AutoSaveHandler {
 
 fn request_auto_save(editor: &mut Editor) {
     let context = &mut compositor::Context {
+        keymaps: &mut Keymaps::default(),
         editor,
         scroll: Some(0),
         jobs: &mut Jobs::new(),
