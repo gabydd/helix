@@ -209,12 +209,17 @@ macro_rules! component_commands {
             paste! {
                 #[allow(non_upper_case_globals)]
                 pub const [<$second _ $name>]: Self = Self::Component {
-                    name: stringify!(<$second _ $name>),
+                    name: stringify!([<$second _ $name>]),
                     fun: $first::$second::$name,
                     doc: $doc
                 };
             }
         )*
+        paste! {
+            pub const COMPONENT_COMMAND_LIST: &'static [Self] = &[
+                $( Self::[<$second _ $name>], )*
+            ];
+        }
     }
 }
 
@@ -244,7 +249,7 @@ impl MappableCommand {
         match &self {
             Self::Typable { name, .. } => name,
             Self::Static { name, .. } => name,
-            Self::Component { .. } => unimplemented!(),
+            Self::Component { name, .. } => name,
         }
     }
 
@@ -590,6 +595,12 @@ impl std::str::FromStr for MappableCommand {
                 .iter()
                 .find(|cmd| cmd.name() == s)
                 .cloned()
+                .or_else(|| {
+                    MappableCommand::COMPONENT_COMMAND_LIST
+                        .iter()
+                        .find(|cmd| cmd.name() == s)
+                        .cloned()
+                })
                 .ok_or_else(|| anyhow!("No command named '{}'", s))
         }
     }
