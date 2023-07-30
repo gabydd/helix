@@ -31,8 +31,8 @@ use crate::{
     compositor::{self, Compositor},
     job::Callback,
     ui::{
-        self, lsp::SignatureHelp, overlay::overlaid, DynamicPicker, FileLocation, Picker, Popup,
-        PromptEvent,
+        self, lsp::SignatureHelp, menu::AnyMenu, overlay::overlaid, DynamicPicker, FileLocation,
+        Picker, Popup, PromptEvent,
     },
 };
 

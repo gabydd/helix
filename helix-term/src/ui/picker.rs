@@ -1,10 +1,7 @@
 use crate::{
-    alt,
     commands::ComponentRef,
     compositor::{self, Component, Compositor, Context, Event, EventResult},
-    ctrl,
     job::Callback,
-    key, shift,
     ui::{
         self,
         document::{render_document, LineDecoration, LinePos, TextRenderer},
@@ -857,66 +854,6 @@ impl<T: Item + 'static> Component for Picker<T> {
                     return EventResult::Consumed(callback);
                 }
             }
-            _ => (),
-        }
-
-        let close_fn =
-            EventResult::Consumed(Some(Box::new(|compositor: &mut Compositor, _ctx| {
-                // remove the layer
-                compositor.last_picker = compositor.pop();
-            })));
-
-        // So that idle timeout retriggers
-        ctx.editor.reset_idle_timer();
-
-        match key_event {
-            shift!(Tab) | key!(Up) | ctrl!('p') => {
-                self.move_by(1, Direction::Backward);
-            }
-            key!(Tab) | key!(Down) | ctrl!('n') => {
-                self.move_by(1, Direction::Forward);
-            }
-            key!(PageDown) | ctrl!('d') => {
-                self.page_down();
-            }
-            key!(PageUp) | ctrl!('u') => {
-                self.page_up();
-            }
-            key!(Home) => {
-                self.to_start();
-            }
-            key!(End) => {
-                self.to_end();
-            }
-            key!(Esc) | ctrl!('c') => {
-                return close_fn;
-            }
-            alt!(Enter) => {
-                if let Some(option) = self.selection() {
-                    (self.callback_fn)(ctx, option, Action::Load);
-                }
-            }
-            key!(Enter) => {
-                if let Some(option) = self.selection() {
-                    (self.callback_fn)(ctx, option, Action::Replace);
-                }
-                return close_fn;
-            }
-            ctrl!('s') => {
-                if let Some(option) = self.selection() {
-                    (self.callback_fn)(ctx, option, Action::HorizontalSplit);
-                }
-                return close_fn;
-            }
-            ctrl!('v') => {
-                if let Some(option) = self.selection() {
-                    (self.callback_fn)(ctx, option, Action::VerticalSplit);
-                }
-                return close_fn;
-            }
-            ctrl!('t') => {
-                self.toggle_preview();
-            }
             _ => {
                 self.prompt_handle_event(event, ctx);
             }
@@ -1046,7 +983,7 @@ impl<T: Item + Send + 'static> Component for DynamicPicker<T> {
     }
 }
 
-pub fn move_up_one_picker(component: ComponentRef, _cx: &mut Context) -> EventResult {
+pub fn move_up(component: ComponentRef, _cx: &mut Context) -> EventResult {
     let ComponentRef::Picker(picker) = component
            else {
                 return EventResult::Ignored(None);
@@ -1054,7 +991,7 @@ pub fn move_up_one_picker(component: ComponentRef, _cx: &mut Context) -> EventRe
     picker.move_by(1, Direction::Backward);
     return EventResult::Consumed(None);
 }
-pub fn move_down_one_picker(component: ComponentRef, _cx: &mut Context) -> EventResult {
+pub fn move_down(component: ComponentRef, _cx: &mut Context) -> EventResult {
     let ComponentRef::Picker(picker) = component
             else {
                 return EventResult::Ignored(None);
@@ -1078,7 +1015,7 @@ pub fn page_up(component: ComponentRef, _cx: &mut Context) -> EventResult {
     picker.page_up();
     EventResult::Consumed(None)
 }
-pub fn move_to_start(component: ComponentRef, _cx: &mut Context) -> EventResult {
+pub fn to_start(component: ComponentRef, _cx: &mut Context) -> EventResult {
     let ComponentRef::Picker(picker) = component
             else {
                 return EventResult::Ignored(None);
@@ -1086,7 +1023,7 @@ pub fn move_to_start(component: ComponentRef, _cx: &mut Context) -> EventResult 
     picker.to_start();
     EventResult::Consumed(None)
 }
-pub fn move_to_end(component: ComponentRef, _cx: &mut Context) -> EventResult {
+pub fn to_end(component: ComponentRef, _cx: &mut Context) -> EventResult {
     let ComponentRef::Picker(picker) = component
             else {
                 return EventResult::Ignored(None);
@@ -1136,7 +1073,7 @@ pub fn toggle_preview(component: ComponentRef, _cx: &mut Context) -> EventResult
     EventResult::Consumed(None)
 }
 
-pub fn close_buffer_in_buffer_picker(component: ComponentRef, cx: &mut Context) -> EventResult {
+pub fn close_buffer(component: ComponentRef, cx: &mut Context) -> EventResult {
     let ComponentRef::Picker(component) = component else { return EventResult::Ignored(None)};
     let Some(picker) = component
         .as_any_mut()
@@ -1168,7 +1105,7 @@ pub fn close_buffer_in_buffer_picker(component: ComponentRef, cx: &mut Context) 
 // This is also cool because it doesn't even need to interact with
 // the picker, so we don't need concrete types:
 
-pub fn close_picker(_component: &mut dyn Component, _cx: &mut Context) -> EventResult {
+pub fn close(_component: ComponentRef, _cx: &mut Context) -> EventResult {
     close_fn()
 }
 
@@ -1196,22 +1133,6 @@ pub fn close_picker(_component: &mut dyn Component, _cx: &mut Context) -> EventR
 // Can we do something clever with a hypothetical AnyPicker interface
 // similar to AnyComponent? Will we have to do that for every Component
 // that uses generics?
-
-pub fn to_start<T: ui::menu::Item + 'static>(
-    component: &mut dyn Component,
-    _cx: &mut Context,
-) -> EventResult {
-    let Some(picker) = component
-        .as_any_mut()
-        .downcast_mut::<Picker<T>>()
-    else {
-        return EventResult::Ignored(None);
-    };
-
-    picker.cursor = 0;
-
-    EventResult::Consumed(None)
-}
 
 fn close_fn() -> EventResult {
     EventResult::Consumed(Some(Box::new(|compositor: &mut Compositor, _ctx| {
