@@ -826,6 +826,8 @@ impl<T: Item + 'static> Component for Picker<T> {
         }
         // TODO: keybinds for scrolling preview
 
+        ctx.editor.reset_idle_timer();
+
         let key_event = match event {
             Event::Key(event) => *event,
             Event::Paste(..) => return self.prompt_handle_event(event, ctx),
