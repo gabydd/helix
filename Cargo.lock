@@ -1161,6 +1161,12 @@ dependencies = [
 name = "helix-event"
 version = "0.6.0"
 dependencies = [
+ "ahash",
+ "anyhow",
+ "futures-executor",
+ "hashbrown 0.14.2",
+ "log",
+ "once_cell",
  "parking_lot",
  "tokio",
 ]
