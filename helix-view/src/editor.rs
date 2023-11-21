@@ -210,6 +210,14 @@ impl Default for FilePickerConfig {
     }
 }
 
+fn string_as_chars<'de, D>(deserializer: D) -> Result<Vec<char>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let str = String::deserialize(deserializer)?;
+    Ok(str.chars().collect())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
 pub struct Config {
@@ -291,6 +299,9 @@ pub struct Config {
     pub insert_final_newline: bool,
     /// Enables smart tab
     pub smart_tab: Option<SmartTabConfig>,
+    /// labels characters used in jumpmode
+    #[serde(skip_serializing, deserialize_with = "string_as_chars")]
+    pub jump_label_alphabet: Vec<char>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Eq, PartialOrd, Ord)]
@@ -846,6 +857,7 @@ impl Default for Config {
             default_line_ending: LineEndingConfig::default(),
             insert_final_newline: true,
             smart_tab: Some(SmartTabConfig::default()),
+            jump_label_alphabet: ('a'..='z').collect(),
         }
     }
 }
