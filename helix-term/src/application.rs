@@ -1,6 +1,7 @@
 use arc_swap::{access::Map, ArcSwap};
 use futures_util::Stream;
 use helix_core::{
+    chars::char_is_word,
     diagnostic::{DiagnosticTag, NumberOrString, Severity},
     path::get_relative_path,
     pos_at_coords, syntax, Selection,
@@ -731,7 +732,7 @@ impl Application {
                             ));
                         }
                     }
-                    Notification::PublishDiagnostics(params) => {
+                    Notification::PublishDiagnostics(mut params) => {
                         let path = match params.uri.to_file_path() {
                             Ok(path) => path,
                             Err(_) => {
@@ -745,31 +746,69 @@ impl Application {
                             return;
                         }
                         let offset_encoding = language_server.offset_encoding();
-                        let doc = self.editor.document_by_path_mut(&path).filter(|doc| {
-                            if let Some(version) = params.version {
-                                if version != doc.version() {
-                                    log::info!("Version ({version}) is out of date for {path:?} (expected ({}), dropping PublishDiagnostic notification", doc.version());
-                                    return false;
+                        // have to inline the function because of borrow checking...
+                        let doc = self.editor.documents.values_mut()
+                            .find(|doc| doc.path().map(|p| p == &path).unwrap_or(false))
+                            .filter(|doc| {
+                                if let Some(version) = params.version {
+                                    if version != doc.version() {
+                                        log::info!("Version ({version}) is out of date for {path:?} (expected ({}), dropping PublishDiagnostic notification", doc.version());
+                                        return false;
+                                    }
+                                }
+                                true
+                            });
+
+                        if let Some(doc) = doc {
+                            let lang_conf = doc.language.clone();
+                            let text = doc.text().clone();
+
+                            let mut unchaged_diag_sources_ = Vec::new();
+                            if let Some(lang_conf) = &lang_conf {
+                                if let Some(old_diagnostics) =
+                                    self.editor.diagnostics.get(&params.uri)
+                                {
+                                    if !lang_conf.persistent_diagnostic_sources.is_empty() {
+                                        // Sort diagnostics first by severity and then by line numbers.
+                                        // Note: The `lsp::DiagnosticSeverity` enum is already defined in decreasing order
+                                        params
+                                            .diagnostics
+                                            .sort_unstable_by_key(|d| (d.severity, d.range.start));
+                                    }
+                                    for source in &lang_conf.persistent_diagnostic_sources {
+                                        let new_diagnostics = params
+                                            .diagnostics
+                                            .iter()
+                                            .filter(|d| d.source.as_ref() == Some(source));
+                                        let old_diagnostics = old_diagnostics
+                                            .iter()
+                                            .filter(|(d, d_server)| {
+                                                *d_server == server_id
+                                                    && d.source.as_ref() == Some(source)
+                                            })
+                                            .map(|(d, _)| d);
+                                        if new_diagnostics.eq(old_diagnostics) {
+                                            unchaged_diag_sources_.push(source.clone())
+                                        }
+                                    }
                                 }
                             }
 
-                            true
-                        });
-
-                        if let Some(doc) = doc {
-                            let lang_conf = doc.language_config();
-                            let text = doc.text();
-
-                            let diagnostics = params
-                                .diagnostics
-                                .iter()
-                                .filter_map(|diagnostic| {
+                            let unchaged_diag_sources = &unchaged_diag_sources_;
+                            let diagnostics =
+                                params.diagnostics.iter().filter_map(move |diagnostic| {
                                     use helix_core::diagnostic::{Diagnostic, Range, Severity::*};
                                     use lsp::DiagnosticSeverity;
 
+                                    if diagnostic.source.as_ref().map_or(false, |source| {
+                                        unchaged_diag_sources.contains(source)
+                                    }) {
+                                        return None;
+                                    }
+
                                     // TODO: convert inside server
                                     let start = if let Some(start) = lsp_pos_to_pos(
-                                        text,
+                                        &text,
                                         diagnostic.range.start,
                                         offset_encoding,
                                     ) {
@@ -780,14 +819,13 @@ impl Application {
                                     };
 
                                     let end = if let Some(end) =
-                                        lsp_pos_to_pos(text, diagnostic.range.end, offset_encoding)
+                                        lsp_pos_to_pos(&text, diagnostic.range.end, offset_encoding)
                                     {
                                         end
                                     } else {
                                         log::warn!("lsp position out of bounds - {:?}", diagnostic);
                                         return None;
                                     };
-
                                     let severity =
                                         diagnostic.severity.map(|severity| match severity {
                                             DiagnosticSeverity::ERROR => Error,
@@ -800,7 +838,7 @@ impl Application {
                                             ),
                                         });
 
-                                    if let Some(lang_conf) = lang_conf {
+                                    if let Some(lang_conf) = &lang_conf {
                                         if let Some(severity) = severity {
                                             if severity < lang_conf.diagnostic_severity {
                                                 return None;
@@ -839,8 +877,17 @@ impl Application {
                                         Vec::new()
                                     };
 
+                                    let ends_at_word = start != end
+                                        && end != 0
+                                        && text.get_char(end - 1).map_or(false, char_is_word);
+                                    let starts_at_word = start != end
+                                        && text.get_char(start).map_or(false, char_is_word);
+
                                     Some(Diagnostic {
                                         range: Range { start, end },
+                                        ends_at_word,
+                                        starts_at_word,
+                                        zero_width: start == end,
                                         line: diagnostic.range.start.line as usize,
                                         message: diagnostic.message.clone(),
                                         severity,
@@ -850,38 +897,33 @@ impl Application {
                                         data: diagnostic.data.clone(),
                                         language_server_id: server_id,
                                     })
-                                })
-                                .collect();
+                                });
 
-                            doc.replace_diagnostics(diagnostics, server_id);
+                            doc.replace_diagnostics(diagnostics, unchaged_diag_sources, server_id);
                         }
 
-                        let mut diagnostics = params
-                            .diagnostics
-                            .into_iter()
-                            .map(|d| (d, server_id))
-                            .collect();
+                        let diagnostics = params.diagnostics.into_iter().map(|d| (d, server_id));
 
                         // Insert the original lsp::Diagnostics here because we may have no open document
                         // for diagnosic message and so we can't calculate the exact position.
                         // When using them later in the diagnostics picker, we calculate them on-demand.
-                        match self.editor.diagnostics.entry(params.uri) {
+                        let diagnostics = match self.editor.diagnostics.entry(params.uri) {
                             Entry::Occupied(o) => {
                                 let current_diagnostics = o.into_mut();
                                 // there may entries of other language servers, which is why we can't overwrite the whole entry
                                 current_diagnostics.retain(|(_, lsp_id)| *lsp_id != server_id);
-                                current_diagnostics.append(&mut diagnostics);
-                                // Sort diagnostics first by severity and then by line numbers.
-                                // Note: The `lsp::DiagnosticSeverity` enum is already defined in decreasing order
+                                current_diagnostics.extend(diagnostics);
                                 current_diagnostics
-                                    .sort_unstable_by_key(|(d, _)| (d.severity, d.range.start));
+                                // Sort diagnostics first by severity and then by line numbers.
                             }
-                            Entry::Vacant(v) => {
-                                diagnostics
-                                    .sort_unstable_by_key(|(d, _)| (d.severity, d.range.start));
-                                v.insert(diagnostics);
-                            }
+                            Entry::Vacant(v) => v.insert(diagnostics.collect()),
                         };
+
+                        // Sort diagnostics first by severity and then by line numbers.
+                        // Note: The `lsp::DiagnosticSeverity` enum is already defined in decreasing order
+                        diagnostics.sort_unstable_by_key(|(d, server_id)| {
+                            (d.severity, d.range.start, *server_id)
+                        });
                     }
                     Notification::ShowMessage(params) => {
                         log::warn!("unhandled window/showMessage: {:?}", params);

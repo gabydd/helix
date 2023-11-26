@@ -1218,23 +1218,40 @@ impl Document {
 
             let changes = transaction.changes();
 
-            changes.update_positions(
-                self.diagnostics
-                    .iter_mut()
-                    .map(|diagnostic| (&mut diagnostic.range.start, Assoc::After)),
-            );
-            changes.update_positions(
-                self.diagnostics
-                    .iter_mut()
-                    .map(|diagnostic| (&mut diagnostic.range.end, Assoc::After)),
-            );
-            // map state.diagnostics over changes::map_pos too
-            for diagnostic in &mut self.diagnostics {
+            // map diagnostics over changes too
+            changes.update_positions(self.diagnostics.iter_mut().map(|diagnostic| {
+                let assoc = if diagnostic.starts_at_word {
+                    Assoc::BeforeWord
+                } else {
+                    Assoc::After
+                };
+                (&mut diagnostic.range.start, assoc)
+            }));
+            changes.update_positions(self.diagnostics.iter_mut().map(|diagnostic| {
+                let assoc = if diagnostic.ends_at_word {
+                    Assoc::AfterWord
+                } else {
+                    Assoc::Before
+                };
+                (&mut diagnostic.range.end, assoc)
+            }));
+            self.diagnostics.retain_mut(|diagnostic| {
+                if diagnostic.range.start > diagnostic.range.end
+                    || (!diagnostic.zero_width && diagnostic.range.start == diagnostic.range.end)
+                {
+                    return false;
+                }
                 diagnostic.line = self.text.char_to_line(diagnostic.range.start);
-            }
+                true
+            });
 
-            self.diagnostics
-                .sort_by_key(|diagnostic| (diagnostic.range.start, diagnostic.severity));
+            self.diagnostics.sort_unstable_by_key(|diagnostic| {
+                (
+                    diagnostic.range.start,
+                    diagnostic.severity,
+                    diagnostic.language_server_id,
+                )
+            });
 
             // Update the inlay hint annotations' positions, helping ensure they are displayed in the proper place
             let apply_inlay_hint_changes = |annotations: &mut Vec<InlineAnnotation>| {
@@ -1712,13 +1729,33 @@ impl Document {
 
     pub fn replace_diagnostics(
         &mut self,
-        mut diagnostics: Vec<Diagnostic>,
+        diagnostics: impl IntoIterator<Item = Diagnostic>,
+        unchanged_sources: &[String],
         language_server_id: usize,
     ) {
-        self.clear_diagnostics(language_server_id);
-        self.diagnostics.append(&mut diagnostics);
-        self.diagnostics
-            .sort_by_key(|diagnostic| (diagnostic.range.start, diagnostic.severity));
+        if unchanged_sources.is_empty() {
+            self.clear_diagnostics(language_server_id);
+        } else {
+            self.diagnostics.retain(|d| {
+                if d.language_server_id != language_server_id {
+                    return true;
+                }
+
+                if let Some(source) = &d.source {
+                    unchanged_sources.contains(source)
+                } else {
+                    false
+                }
+            });
+        }
+        self.diagnostics.extend(diagnostics);
+        self.diagnostics.sort_unstable_by_key(|diagnostic| {
+            (
+                diagnostic.range.start,
+                diagnostic.severity,
+                diagnostic.language_server_id,
+            )
+        });
     }
 
     pub fn clear_diagnostics(&mut self, language_server_id: usize) {
