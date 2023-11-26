@@ -611,6 +611,7 @@ fn move_impl(cx: &mut Context, move_fn: MoveFn, dir: Direction, behaviour: Movem
             &mut annotations,
         )
     });
+    drop(annotations);
     doc.set_selection(view.id, selection);
 }
 
@@ -1646,7 +1647,7 @@ pub fn scroll(cx: &mut Context, offset: usize, direction: Direction) {
     let doc_text = doc.text().slice(..);
     let viewport = view.inner_area(doc);
     let text_fmt = doc.text_format(viewport.width, None);
-    let annotations = view.text_annotations(doc, None);
+    let annotations = view.text_annotations(&*doc, None);
     (view.offset.anchor, view.offset.vertical_offset) = char_idx_at_visual_offset(
         doc_text,
         view.offset.anchor,
@@ -1700,6 +1701,7 @@ pub fn scroll(cx: &mut Context, offset: usize, direction: Direction) {
     let mut sel = doc.selection(view.id).clone();
     let idx = sel.primary_index();
     sel = sel.replace(idx, prim_sel);
+    drop(annotations);
     doc.set_selection(view.id, sel);
 }
 
