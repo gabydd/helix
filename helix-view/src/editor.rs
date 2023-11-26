@@ -3,6 +3,7 @@ use crate::{
     annotations::diagnostics::InlineDiagnosticsConfig,
     document::{DocumentSavedEventFuture, DocumentSavedEventResult, Mode, SavePoint},
     graphics::{CursorKind, Rect},
+    handlers::Handlers,
     info::Info,
     input::KeyEvent,
     register::Registers,
@@ -31,10 +32,7 @@ use std::{
 };
 
 use tokio::{
-    sync::{
-        mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
-        oneshot,
-    },
+    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
     time::{sleep, Duration, Instant, Sleep},
 };
 
@@ -253,12 +251,19 @@ pub struct Config {
     /// Set a global text_width
     pub text_width: usize,
     /// Time in milliseconds since last keypress before idle timers trigger.
-    /// Used for autocompletion, set to 0 for instant. Defaults to 250ms.
+    /// Used for various UI timeouts. Defaults to 250ms.
     #[serde(
         serialize_with = "serialize_duration_millis",
         deserialize_with = "deserialize_duration_millis"
     )]
     pub idle_timeout: Duration,
+    /// Time in milliseconds after typing a word character before auto completions
+    /// are shown, set to 5 for instant. Defaults to 250ms.
+    #[serde(
+        serialize_with = "serialize_duration_millis",
+        deserialize_with = "deserialize_duration_millis"
+    )]
+    pub completion_timeout: Duration,
     /// Whether to insert the completion suggestion on hover. Defaults to true.
     pub preview_completion_insert: bool,
     pub completion_trigger_len: u8,
@@ -833,6 +838,7 @@ impl Default for Config {
             auto_format: true,
             auto_save: false,
             idle_timeout: Duration::from_millis(250),
+            completion_timeout: Duration::from_millis(250),
             preview_completion_insert: true,
             completion_trigger_len: 2,
             auto_info: true,
@@ -956,14 +962,7 @@ pub struct Editor {
     /// avoid calculating the cursor position multiple
     /// times during rendering and should not be set by other functions.
     pub cursor_cache: CursorCache,
-    /// When a new completion request is sent to the server old
-    /// unfinished request must be dropped. Each completion
-    /// request is associated with a channel that cancels
-    /// when the channel is dropped. That channel is stored
-    /// here. When a new completion request is sent this
-    /// field is set and any old requests are automatically
-    /// canceled as a result
-    pub completion_request_handle: Option<oneshot::Sender<()>>,
+    pub handlers: Handlers,
 }
 
 pub type Motion = Box<dyn Fn(&mut Editor)>;
@@ -991,13 +990,16 @@ enum ThemeAction {
 
 #[derive(Debug, Clone)]
 pub enum CompleteAction {
+    Triggered,
+    /// A savepoint of the currently selected completion. The savepoint
+    /// MUST be restored before sending any event to the LSP
+    Selected {
+        savepoint: Arc<SavePoint>,
+    },
     Applied {
         trigger_offset: usize,
         changes: Vec<Change>,
     },
-    /// A savepoint of the currently selected completion. The savepoint
-    /// MUST be restored before sending any event to the LSP
-    Selected { savepoint: Arc<SavePoint> },
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -1031,6 +1033,7 @@ impl Editor {
         theme_loader: Arc<theme::Loader>,
         syn_loader: Arc<syntax::Loader>,
         config: Arc<dyn DynAccess<Config>>,
+        handlers: Handlers,
     ) -> Self {
         let language_servers = helix_lsp::Registry::new(syn_loader.clone());
         let conf = config.load();
@@ -1075,7 +1078,7 @@ impl Editor {
             config_events: unbounded_channel(),
             needs_redraw: false,
             cursor_cache: CursorCache::default(),
-            completion_request_handle: None,
+            handlers,
         }
     }
 
