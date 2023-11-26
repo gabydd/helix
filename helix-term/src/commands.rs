@@ -10,7 +10,9 @@ use tui::widgets::Row;
 pub use typed::*;
 
 use helix_core::{
-    char_idx_at_visual_offset, comment,
+    char_idx_at_visual_offset,
+    chars::char_is_word,
+    comment,
     doc_formatter::TextFormat,
     encoding, find_first_non_whitespace_char, find_workspace, graphemes,
     history::UndoKind,
@@ -24,7 +26,7 @@ use helix_core::{
     search::{self, CharMatcher},
     selection, shellwords, surround,
     syntax::LanguageServerFeature,
-    text_annotations::TextAnnotations,
+    text_annotations::{Overlay, TextAnnotations},
     textobject,
     tree_sitter::Node,
     unicode::width::UnicodeWidthChar,
@@ -496,6 +498,8 @@ impl MappableCommand {
         record_macro, "Record macro",
         replay_macro, "Replay macro",
         command_palette, "Open command palette",
+        goto_word, "Jump to a two-character label",
+        extend_to_word, "Extend to a two-character label",
     );
 }
 
@@ -3531,7 +3535,6 @@ pub mod insert {
         let text = doc.text().slice(..);
         let cursor = doc.selection(view.id).primary().cursor(text);
 
-        use helix_core::chars::char_is_word;
         let mut iter = text.chars_at(cursor);
         iter.reverse();
         for _ in 0..config.completion_trigger_len {
@@ -5837,4 +5840,152 @@ fn replay_macro(cx: &mut Context) {
         // replaying recursively.
         cx.editor.macro_replaying.pop();
     }));
+}
+
+fn goto_word(cx: &mut Context) {
+    jump_to_word(cx, Movement::Move)
+}
+
+fn extend_to_word(cx: &mut Context) {
+    jump_to_word(cx, Movement::Extend)
+}
+
+fn jump_to_label(cx: &mut Context, labels: Vec<Range>, behaviour: Movement) {
+    let doc = doc!(cx.editor);
+    let alphabet = &cx.editor.config().jump_label_alphabet;
+    if labels.is_empty() {
+        return;
+    }
+    let alphabet_char = |i| {
+        let mut res = Tendril::new();
+        res.push(alphabet[i]);
+        res
+    };
+
+    // Add label for each jump candidate to the View as virtual text.
+    let text = doc.text().slice(..);
+    let mut overlays: Vec<_> = labels
+        .iter()
+        .enumerate()
+        .flat_map(|(i, range)| {
+            [
+                Overlay::new(range.from(), alphabet_char(i / alphabet.len())),
+                Overlay::new(
+                    graphemes::next_grapheme_boundary(text, range.from()),
+                    alphabet_char(i % alphabet.len()),
+                ),
+            ]
+        })
+        .collect();
+    overlays.sort_unstable_by_key(|overlay| overlay.char_idx);
+    let (view, doc) = current!(cx.editor);
+    doc.set_jump_labels(view.id, overlays);
+
+    // Accept two characters matching a visible label. Jump to the candidate
+    // for that label if it exists.
+    let primary_selection = doc.selection(view.id).primary();
+    let view = view.id;
+    let doc = doc.id();
+    cx.on_next_key(move |cx, event| {
+        let alphabet = &cx.editor.config().jump_label_alphabet;
+        let Some(i ) = event.char().and_then(|ch| alphabet.iter().position(|&it| it == ch)) else {
+            doc_mut!(cx.editor, &doc).remove_jump_labels(view);
+            return;
+        };
+        let outer = i * alphabet.len();
+        // Bail if the given character cannot be a jump label.
+        if outer > labels.len() {
+            doc_mut!(cx.editor, &doc).remove_jump_labels(view);
+            return;
+        }
+        cx.on_next_key(move |cx, event| {
+            doc_mut!(cx.editor, &doc).remove_jump_labels(view);
+            let alphabet = &cx.editor.config().jump_label_alphabet;
+            let Some(inner ) = event.char().and_then(|ch| alphabet.iter().position(|&it| it == ch)) else {
+                return;
+            };
+            if let Some(mut range) = labels.get(outer + inner).copied() {
+                if behaviour == Movement::Extend {
+                    let anchor = if range.anchor < range.head {
+                        let from = primary_selection.from();
+                        if range.anchor < from {
+                            range.anchor
+                        } else {
+                            from
+                        }
+                    } else {
+                        let to = primary_selection.to();
+                        if range.anchor > to {
+                            range.anchor
+                        } else {
+                            to
+                        }
+                    };
+                    range = Range::new(anchor, range.head);
+                }
+                doc_mut!(cx.editor, &doc).set_selection(view, range.into());
+            }
+        });
+    });
+}
+
+fn jump_to_word(cx: &mut Context, behaviour: Movement) {
+    // Calculate the jump candidates: ranges for any visible words with two or
+    // more characters.
+    let alphabet = &cx.editor.config().jump_label_alphabet;
+    let jump_label_limit = alphabet.len() * alphabet.len();
+    let mut words = Vec::with_capacity(jump_label_limit);
+    let (view, doc) = current_ref!(cx.editor);
+    let text = doc.text().slice(..);
+
+    // This is not necessarily exact if there is virtual text like soft wrap.
+    // It's ok though because the extra jump labels will not be rendered.
+    let start = text.line_to_char(text.char_to_line(view.offset.anchor));
+    let end = text.line_to_char(view.estimate_last_doc_line(doc) + 1);
+
+    let primary_selection = doc.selection(view.id).primary();
+    let cursor = primary_selection.cursor(text);
+    let cursor_fwd = movement::move_prev_word_start(text, Range::point(cursor), 1);
+    let mut cursor_fwd = if cursor_fwd.anchor == cursor {
+        Range::point(cursor_fwd.head)
+    } else {
+        Range::point(cursor)
+    };
+    let mut cursor_rev = cursor_fwd;
+    loop {
+        let mut changed = false;
+        if cursor_fwd.head < end {
+            cursor_fwd = movement::move_next_word_end(text, cursor_fwd, 1);
+            let range = movement::move_prev_word_start(text, cursor_fwd, 1);
+            // The cursor is on a word longer than 2 characters.
+            if RopeGraphemes::new(text.slice(range.head..))
+                .take(2)
+                .all(|g| g.chars().all(char_is_word))
+            {
+                words.push(range.flip());
+            }
+            changed = true;
+            if words.len() == jump_label_limit {
+                break;
+            }
+        }
+        if cursor_rev.head > start {
+            cursor_rev = movement::move_prev_word_start(text, cursor_rev, 1);
+            // The cursor is on a word longer than 2 characters.
+            if RopeGraphemes::new(text.slice(cursor_rev.head..))
+                .take(2)
+                .all(|g| g.chars().all(char_is_word))
+            {
+                words.push(movement::move_next_word_end(text, cursor_rev, 1).flip());
+            }
+            changed = true;
+            if words.len() == jump_label_limit {
+                break;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    jump_to_label(cx, words, behaviour)
 }
