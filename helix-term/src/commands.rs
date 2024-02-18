@@ -57,7 +57,7 @@ use movement::Movement;
 use crate::{
     args,
     compositor::{self, Component, Compositor},
-    filter_picker_entry,
+    events, filter_picker_entry,
     job::Callback,
     ui::{self, overlay::overlaid, Picker, PickerColumn, Popup, Prompt, PromptEvent},
 };
@@ -138,6 +138,45 @@ impl<'a> Context<'a> {
     #[inline]
     pub fn count(&self) -> usize {
         self.count.map_or(1, |v| v.get())
+    }
+
+    pub fn execute<F: FnOnce(&mut Self)>(&mut self, execute_fn: F) {
+        self.execute_impl(false, execute_fn)
+    }
+
+    pub fn execute_command(&mut self, command: &MappableCommand) {
+        self.execute_impl(command.is_typable(), |cx| {
+            command.execute(cx);
+            helix_event::dispatch(events::PostCommand { command, cx });
+        })
+    }
+
+    fn execute_impl<F: FnOnce(&mut Self)>(&mut self, append_changes: bool, execute_fn: F) {
+        let pre_command_mode = self.editor.mode();
+        if pre_command_mode != Mode::Insert || append_changes {
+            let (view, doc) = current!(self.editor);
+            doc.append_changes_to_history(view);
+        }
+
+        execute_fn(self);
+
+        let post_command_mode = self.editor.mode();
+        if post_command_mode != pre_command_mode {
+            helix_event::dispatch(events::OnModeSwitch {
+                old_mode: pre_command_mode,
+                new_mode: post_command_mode,
+                cx: self,
+            });
+        }
+
+        if !self.editor.tree.is_empty() {
+            let scrolloff = self.editor.config().scrolloff;
+            let (view, doc) = current!(self.editor);
+            if post_command_mode != Mode::Insert || append_changes {
+                doc.append_changes_to_history(view);
+            }
+            view.ensure_cursor_in_view(doc, scrolloff);
+        }
     }
 }
 
@@ -260,6 +299,10 @@ impl MappableCommand {
             Self::Static { doc, .. } => doc,
             Self::Macro { name, .. } => name,
         }
+    }
+
+    pub fn is_typable(&self) -> bool {
+        matches!(self, Self::Typable { .. })
     }
 
     #[rustfmt::skip]
@@ -3221,22 +3264,8 @@ pub fn command_palette(cx: &mut Context) {
                     on_next_key_callback: None,
                     jobs: cx.jobs,
                 };
-                let focus = view!(ctx.editor).id;
 
-                command.execute(&mut ctx);
-
-                if ctx.editor.tree.contains(focus) {
-                    let config = ctx.editor.config();
-                    let mode = ctx.editor.mode();
-                    let view = view_mut!(ctx.editor, focus);
-                    let doc = doc_mut!(ctx.editor, &view.doc);
-
-                    view.ensure_cursor_in_view(doc, config.scrolloff);
-
-                    if mode != Mode::Insert {
-                        doc.append_changes_to_history(view);
-                    }
-                }
+                ctx.execute_command(command);
             });
             compositor.push(Box::new(overlaid(picker)));
         },
