@@ -47,6 +47,14 @@ impl TryFrom<Uri> for PathBuf {
     }
 }
 
+impl std::fmt::Display for Uri {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::File(path) => f.write_str(&path.to_string_lossy()),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct UrlConversionError {
     source: url::Url,

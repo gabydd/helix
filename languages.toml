@@ -1720,7 +1720,7 @@ roots = ["rebar.config"]
 shebangs = ["escript"]
 comment-tokens = ["%%"]
 indent = { tab-width = 4, unit = "    " }
-language-servers = [ "erlang-ls" ]
+language-servers = [ { name = "erlang-ls", except-features = ["document-symbols", "workspace-symbols"] } ]
 
 [[grammar]]
 name = "erlang"
