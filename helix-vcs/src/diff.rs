@@ -289,4 +289,8 @@ impl Diff<'_> {
             }
         }
     }
+
+    pub fn hunks(&self) -> impl Iterator<Item = &Hunk> {
+        self.diff.hunks.iter()
+    }
 }
