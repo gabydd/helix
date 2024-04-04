@@ -336,6 +336,8 @@ pub struct Config {
         deserialize_with = "deserialize_alphabet"
     )]
     pub jump_label_alphabet: Vec<char>,
+    /// Whether to render rainbow highlights. Defaults to `false`.
+    pub rainbow_brackets: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Eq, PartialOrd, Ord)]
@@ -913,6 +915,7 @@ impl Default for Config {
             popup_border: PopupBorderConfig::None,
             indent_heuristic: IndentationHeuristic::default(),
             jump_label_alphabet: ('a'..='z').collect(),
+            rainbow_brackets: false,
         }
     }
 }
@@ -1241,8 +1244,9 @@ impl Editor {
             return;
         }
 
-        let scopes = theme.scopes();
-        (*self.syn_loader).load().set_scopes(scopes.to_vec());
+        (*self.syn_loader)
+            .load()
+            .set_scopes(theme.scopes().to_vec());
 
         match preview {
             ThemeAction::Preview => {
