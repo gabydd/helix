@@ -5275,6 +5275,13 @@ fn jump_backward(cx: &mut Context) {
             view.add_to_history(doc_id);
         }
 
+        if &selection == doc.selection(view.id) {
+            log::error!(
+                "duplicate jump point! selection={:?}, jumplist={:?}",
+                selection,
+                view.jumps
+            );
+        }
         doc.set_selection(view.id, selection);
         view.ensure_cursor_in_view_center(doc, config.scrolloff);
     };
