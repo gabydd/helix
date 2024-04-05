@@ -3,7 +3,8 @@ pub use helix_stdx::range::Range;
 use serde::{Deserialize, Serialize};
 
 /// Describes the severity level of a [`Diagnostic`].
-#[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Severity {
     Hint,
     Info,
@@ -45,4 +46,11 @@ pub struct Diagnostic {
     pub tags: Vec<DiagnosticTag>,
     pub source: Option<String>,
     pub data: Option<serde_json::Value>,
+}
+
+impl Diagnostic {
+    #[inline]
+    pub fn severity(&self) -> Severity {
+        self.severity.unwrap_or(Severity::Warning)
+    }
 }

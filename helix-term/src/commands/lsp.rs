@@ -272,10 +272,14 @@ fn diag_picker(
             let Some(path) = uri.as_path() else {
                 return;
             };
-            jump_to_position(cx.editor, path, diag.range, *offset_encoding, action)
+            jump_to_position(cx.editor, path, diag.range, *offset_encoding, action);
+            let (view, doc) = current!(cx.editor);
+            view.diagnostics_handler
+                .immidietly_show_diagnostic(doc, view.id);
         },
     )
     .with_preview(move |_editor, PickerDiagnostic { uri, diag, .. }| {
+        // TODO: render this single diagnostic inline?
         let line = Some((diag.range.start.line as usize, diag.range.end.line as usize));
         Some((uri.as_path()?.into(), line))
     })

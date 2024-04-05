@@ -14,4 +14,5 @@ events! {
     SelectionDidChange<'a> { doc: &'a mut Document, view: ViewId }
     // called **after** a document loses focus (but not when its closed)
     DocumentFocusLost<'a> { editor: &'a mut Editor, doc: DocumentId }
+    DiagnosticsDidChange<'a> { editor: &'a mut Editor, doc: DocumentId }
 }
