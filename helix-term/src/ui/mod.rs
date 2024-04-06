@@ -153,6 +153,7 @@ pub fn raw_regex_prompt(
                                             popup.required_size((size.width, size.height));
 
                                             compositor.replace_or_push("invalid-regex", popup);
+                                            job::RequireRender::Render
                                         },
                                     ));
                                     Ok(call)

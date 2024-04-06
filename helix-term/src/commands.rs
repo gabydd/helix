@@ -60,7 +60,7 @@ use crate::{
     args,
     compositor::{self, Component, Compositor},
     events, filter_picker_entry,
-    job::Callback,
+    job::{Callback, RequireRender},
     ui::{self, overlay::overlaid, Picker, PickerColumn, Popup, Prompt, PromptEvent},
 };
 
@@ -148,7 +148,7 @@ impl<'a> Context<'a> {
         callback: F,
     ) where
         T: for<'de> serde::Deserialize<'de> + Send + 'static,
-        F: FnOnce(&mut Editor, &mut Compositor, T) + Send + 'static,
+        F: FnOnce(&mut Editor, &mut Compositor, T) -> RequireRender + Send + 'static,
     {
         self.jobs.callback(make_job_callback(call, callback));
     }
@@ -206,7 +206,7 @@ fn make_job_callback<T, F>(
 ) -> std::pin::Pin<Box<impl Future<Output = Result<Callback, anyhow::Error>>>>
 where
     T: for<'de> serde::Deserialize<'de> + Send + 'static,
-    F: FnOnce(&mut Editor, &mut Compositor, T) + Send + 'static,
+    F: FnOnce(&mut Editor, &mut Compositor, T) -> RequireRender + Send + 'static,
 {
     Box::pin(async move {
         let json = call.await?;
@@ -3480,7 +3480,7 @@ async fn make_format_callback(
 
     let call: job::Callback = Callback::Editor(Box::new(move |editor| {
         if !editor.documents.contains_key(&doc_id) || !editor.tree.contains(view_id) {
-            return;
+            return RequireRender::Skip;
         }
 
         let scrolloff = editor.config().scrolloff;
@@ -3504,6 +3504,7 @@ async fn make_format_callback(
                 editor.set_error(format!("Error saving: {}", err));
             }
         }
+        RequireRender::Skip
     }));
 
     Ok(call)

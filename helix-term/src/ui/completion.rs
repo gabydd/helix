@@ -1,7 +1,7 @@
 use crate::{
     compositor::{Component, Context, Event, EventResult},
     handlers::trigger_auto_completion,
-    job,
+    job::{self, RequireRender},
 };
 use helix_event::AsyncHook;
 use helix_view::{
@@ -591,7 +591,10 @@ impl AsyncHook for ResolveHandler {
         let Some(item) = self.trigger.take() else { return };
         let (tx, rx) = helix_event::cancelation();
         self.request = Some(tx);
-        job::dispatch_blocking(move |editor, _| resolve_completion_item(editor, item, rx))
+        job::dispatch_blocking(move |editor, _| {
+            resolve_completion_item(editor, item, rx);
+            RequireRender::Skip
+        })
     }
 }
 
@@ -624,7 +627,10 @@ fn resolve_completion_item(
                         };
 
                         completion.replace_item(item, resolved_item);
-                    };
+                        RequireRender::Render
+                    } else {
+                        RequireRender::Skip
+                    }
                 })
                 .await
             }
