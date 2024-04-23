@@ -13,6 +13,7 @@ pub fn query_check() -> Result<(), DynError> {
         "indents.scm",
         "rainbows.scm",
         "symbols.scm",
+        "context.scm",
     ];
 
     for language in lang_config().language {
