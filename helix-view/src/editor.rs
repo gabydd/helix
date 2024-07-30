@@ -345,6 +345,35 @@ pub struct Config {
     /// Display diagnostic below the line they occur.
     pub inline_diagnostics: InlineDiagnosticsConfig,
     pub end_of_line_diagnostics: DiagnosticFilter,
+    pub backup: BackupConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "kebab-case", default)]
+pub struct BackupConfig {
+    pub kind: BackupKind,
+    pub directories: Vec<PathBuf>,
+    pub extension: String,
+}
+
+impl Default for BackupConfig {
+    fn default() -> Self {
+        Self {
+            kind: BackupKind::Auto,
+            // TODO: Prevent empty vector
+            directories: vec![helix_loader::state_dir().join("backup")],
+            // TODO: Prevent empty strings
+            extension: String::from("bck"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "kebab-case")]
+pub enum BackupKind {
+    None,
+    Copy,
+    Auto,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Eq, PartialOrd, Ord)]
@@ -982,6 +1011,7 @@ impl Default for Config {
             jump_label_alphabet: ('a'..='z').collect(),
             inline_diagnostics: InlineDiagnosticsConfig::default(),
             end_of_line_diagnostics: DiagnosticFilter::Disable,
+            backup: BackupConfig::default(),
         }
     }
 }
