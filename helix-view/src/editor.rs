@@ -1,5 +1,6 @@
 use crate::{
     annotations::diagnostics::{DiagnosticFilter, InlineDiagnosticsConfig},
+    clipboard::ClipboardProvider,
     document::{
         DocumentOpenError, DocumentSavedEventFuture, DocumentSavedEventResult, Mode, SavePoint,
     },
@@ -269,8 +270,15 @@ pub struct Config {
     pub auto_pairs: AutoPairConfig,
     /// Automatic auto-completion, automatically pop up without user trigger. Defaults to true.
     pub auto_completion: bool,
+    /// Enable filepath completion.
+    /// Show files and directories if an existing path at the cursor was recognized,
+    /// either absolute or relative to the current opened document or current working directory (if the buffer is not yet saved).
+    /// Defaults to true.
+    pub path_completion: bool,
     /// Automatic formatting on save. Defaults to true.
     pub auto_format: bool,
+    /// Default register used for yank/paste. Defaults to '"'
+    pub default_yank_register: char,
     /// Automatic save on focus lost and/or after delay.
     /// Time delay in milliseconds since last edit after which auto save timer triggers.
     /// Time delay defaults to false with 3000ms delay. Focus lost defaults to false.
@@ -347,6 +355,8 @@ pub struct Config {
     /// Display diagnostic below the line they occur.
     pub inline_diagnostics: InlineDiagnosticsConfig,
     pub end_of_line_diagnostics: DiagnosticFilter,
+    // Set to override the default clipboard provider
+    pub clipboard_provider: ClipboardProvider,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Eq, PartialOrd, Ord)]
@@ -423,7 +433,9 @@ pub fn get_terminal_provider() -> Option<TerminalConfig> {
 pub struct LspConfig {
     /// Enables LSP
     pub enable: bool,
-    /// Display LSP progress messages below statusline
+    /// Display LSP messagess from $/progress below statusline
+    pub display_progress_messages: bool,
+    /// Display LSP messages from window/showMessage below statusline
     pub display_messages: bool,
     /// Enable automatic pop up of signature help (parameter hints)
     pub auto_signature_help: bool,
@@ -441,7 +453,8 @@ impl Default for LspConfig {
     fn default() -> Self {
         Self {
             enable: true,
-            display_messages: false,
+            display_progress_messages: false,
+            display_messages: true,
             auto_signature_help: true,
             display_signature_help_docs: true,
             display_inlay_hints: false,
@@ -946,7 +959,9 @@ impl Default for Config {
             middle_click_paste: true,
             auto_pairs: AutoPairConfig::default(),
             auto_completion: true,
+            path_completion: true,
             auto_format: true,
+            default_yank_register: '"',
             auto_save: AutoSave::default(),
             idle_timeout: Duration::from_millis(250),
             completion_timeout: Duration::from_millis(250),
@@ -981,6 +996,7 @@ impl Default for Config {
             jump_label_alphabet: ('a'..='z').collect(),
             inline_diagnostics: InlineDiagnosticsConfig::default(),
             end_of_line_diagnostics: DiagnosticFilter::Disable,
+            clipboard_provider: ClipboardProvider::default(),
         }
     }
 }
@@ -1183,7 +1199,10 @@ impl Editor {
             theme_loader,
             last_theme: None,
             last_selection: None,
-            registers: Registers::default(),
+            registers: Registers::new(Box::new(arc_swap::access::Map::new(
+                Arc::clone(&config),
+                |config: &Config| &config.clipboard_provider,
+            ))),
             status_msg: None,
             autoinfo: None,
             idle_timer: Box::pin(sleep(conf.idle_timeout)),
@@ -1272,6 +1291,13 @@ impl Editor {
         let error = error.into();
         log::debug!("editor error: {}", error);
         self.status_msg = Some((error, Severity::Error));
+    }
+
+    #[inline]
+    pub fn set_warning<T: Into<Cow<'static, str>>>(&mut self, warning: T) {
+        let warning = warning.into();
+        log::warn!("editor warning: {}", warning);
+        self.status_msg = Some((warning, Severity::Warning));
     }
 
     #[inline]
@@ -1379,6 +1405,11 @@ impl Editor {
         }
         let is_dir = new_path.is_dir();
         for ls in self.language_servers.iter_clients() {
+            // A new language server might have been started in `set_doc_path` and won't
+            // be initialized yet. Skip the `did_rename` notification for this server.
+            if !ls.is_initialized() {
+                continue;
+            }
             if let Some(notification) = ls.did_rename(old_path, &new_path, is_dir) {
                 tokio::spawn(notification);
             };
@@ -2102,7 +2133,7 @@ impl Editor {
                 };
 
                 let doc = doc_mut!(self, &save_event.doc_id);
-                doc.set_last_saved_revision(save_event.revision);
+                doc.set_last_saved_revision(save_event.revision, save_event.save_time);
             }
         }
 

@@ -1074,7 +1074,7 @@ fn show_clipboard_provider(
     }
 
     cx.editor
-        .set_status(cx.editor.registers.clipboard_provider_name().to_string());
+        .set_status(cx.editor.registers.clipboard_provider_name());
     Ok(())
 }
 
@@ -2300,7 +2300,7 @@ fn run_shell_command(
             move |editor: &mut Editor, compositor: &mut Compositor| {
                 if !output.is_empty() {
                     let contents = ui::Markdown::new(
-                        format!("```sh\n{}\n```", output),
+                        format!("```sh\n{}\n```", output.trim_end()),
                         editor.syn_loader.clone(),
                     );
                     let popup = Popup::new("shell", contents).position(Some(
@@ -2308,7 +2308,7 @@ fn run_shell_command(
                     ));
                     compositor.replace_or_push("shell", popup);
                 }
-                editor.set_status("Command succeeded");
+                editor.set_status("Command run");
             },
         ));
         Ok(call)
@@ -2498,7 +2498,7 @@ fn read(cx: &mut compositor::Context, args: &[Cow<str>], event: PromptEvent) -> 
     ensure!(!args.is_empty(), "file name is expected");
     ensure!(args.len() == 1, "only the file name is expected");
 
-    let filename = args.get(0).unwrap();
+    let filename = args.first().unwrap();
     let path = PathBuf::from(filename.to_string());
     ensure!(
         path.exists() && path.is_file(),
@@ -3032,7 +3032,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "tree-sitter-subtree",
         aliases: &["ts-subtree"],
-        doc: "Display tree sitter subtree under cursor, primarily for debugging queries.",
+        doc: "Display the smallest tree-sitter subtree that spans the primary selection, primarily for debugging queries.",
         fun: tree_sitter_subtree,
         signature: CommandSignature::none(),
     },
