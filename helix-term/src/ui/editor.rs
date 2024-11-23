@@ -1,5 +1,5 @@
 use crate::{
-    commands::{self, OnKeyCallback},
+    commands::{self, OnKeyCallback, OnKeyCallbackKind},
     compositor::{Component, Context, Event, EventResult},
     events::{OnModeSwitch, PostCommand},
     handlers::completion::CompletionItem,
@@ -37,7 +37,7 @@ use tui::{buffer::Buffer as Surface, text::Span};
 
 pub struct EditorView {
     pub keymaps: Keymaps,
-    on_next_key: Option<OnKeyCallback>,
+    on_next_key: Option<(OnKeyCallback, OnKeyCallbackKind)>,
     pseudo_pending: Vec<KeyEvent>,
     pub(crate) last_insert: (commands::MappableCommand, Vec<InsertEvent>),
     pub(crate) completion: Option<Completion>,
@@ -93,8 +93,12 @@ impl EditorView {
         let area = view.area;
         let theme = &editor.theme;
         let config = editor.config();
-
         let view_offset = doc.view_offset(view.id);
+
+        let should_render_rainbow_brackets = doc
+            .language_config()
+            .and_then(|lang_config| lang_config.rainbow_brackets)
+            .unwrap_or(config.rainbow_brackets);
 
         let text_annotations = view.text_annotations(doc, Some(theme));
         let mut decorations = DecorationManager::default();
@@ -121,8 +125,15 @@ impl EditorView {
             decorations.add_decoration(line_decoration);
         }
 
-        let syntax_highlights =
+        let mut syntax_highlights =
             Self::doc_syntax_highlights(doc, view_offset.anchor, inner.height, theme);
+
+        if should_render_rainbow_brackets {
+            syntax_highlights = Box::new(syntax::merge(
+                syntax_highlights,
+                Self::doc_rainbow_highlights(doc, view_offset.anchor, inner.height, theme),
+            ));
+        }
 
         let mut overlay_highlights =
             Self::empty_highlight_iter(doc, view_offset.anchor, inner.height);
@@ -147,7 +158,7 @@ impl EditorView {
         }
 
         if is_focused {
-            let highlights = syntax::merge(
+            let mut highlights = syntax::merge(
                 overlay_highlights,
                 Self::doc_selection_highlights(
                     editor.mode(),
@@ -162,6 +173,9 @@ impl EditorView {
             if focused_view_elements.is_empty() {
                 overlay_highlights = Box::new(highlights)
             } else {
+                if let Some(tabstops) = Self::tabstop_highlights(doc, theme) {
+                    highlights = syntax::merge(Box::new(highlights), tabstops);
+                }
                 overlay_highlights = Box::new(syntax::merge(highlights, focused_view_elements))
             }
         }
@@ -355,6 +369,39 @@ impl EditorView {
         range = text.byte_to_char(range.start)..text.byte_to_char(range.end);
 
         text_annotations.collect_overlay_highlights(range)
+    }
+
+    pub fn doc_rainbow_highlights(
+        doc: &Document,
+        anchor: usize,
+        height: u16,
+        theme: &Theme,
+    ) -> Vec<(usize, std::ops::Range<usize>)> {
+        let syntax = match doc.syntax() {
+            Some(syntax) => syntax,
+            None => return Vec::new(),
+        };
+
+        let text = doc.text().slice(..);
+        let row = text.char_to_line(anchor.min(text.len_chars()));
+
+        // calculate viewport byte ranges
+        let last_line = doc.text().len_lines().saturating_sub(1);
+        let last_visible_line = (row + height as usize).saturating_sub(1).min(last_line);
+        let visible_start = text.line_to_byte(row.min(last_line));
+        let visible_end = text.line_to_byte(last_visible_line + 1);
+
+        // The calculation for the current nesting level for rainbow highlights
+        // depends on where we start the iterator from. For accuracy, we start
+        // the iterator further back than the viewport: at the start of the containing
+        // non-root syntax-tree node. Any spans that are off-screen are truncated when
+        // the spans are merged via [syntax::merge].
+        let syntax_node_start =
+            syntax::child_for_byte_range(syntax.tree().root_node(), visible_start..visible_start)
+                .map_or(visible_start, |node| node.byte_range().start);
+        let syntax_node_range = syntax_node_start..visible_end;
+
+        syntax.rainbow_spans(text, Some(syntax_node_range), theme.rainbow_length())
     }
 
     /// Get highlight spans for document diagnostics
@@ -590,6 +637,24 @@ impl EditorView {
             }
         }
         Vec::new()
+    }
+
+    pub fn tabstop_highlights(
+        doc: &Document,
+        theme: &Theme,
+    ) -> Option<Vec<(usize, std::ops::Range<usize>)>> {
+        let snippet = doc.active_snippet.as_ref()?;
+        let highlight = theme.find_scope_index_exact("tabstop")?;
+        let mut highlights = Vec::new();
+        for tabstop in snippet.tabstops() {
+            highlights.extend(
+                tabstop
+                    .ranges
+                    .iter()
+                    .map(|range| (highlight, range.start..range.end)),
+            );
+        }
+        (!highlights.is_empty()).then_some(highlights)
     }
 
     /// Render bufferline at the top
@@ -918,8 +983,10 @@ impl EditorView {
         if let Some(keyresult) = self.handle_keymap_event(Mode::Insert, cx, event) {
             match keyresult {
                 KeymapResult::NotFound => {
-                    if let Some(ch) = event.char() {
-                        commands::insert::insert_char(cx, ch)
+                    if !self.on_next_key(OnKeyCallbackKind::Fallback, cx, event) {
+                        if let Some(ch) = event.char() {
+                            commands::insert::insert_char(cx, ch)
+                        }
                     }
                 }
                 KeymapResult::Cancelled(pending) => {
@@ -1015,7 +1082,10 @@ impl EditorView {
                 // set the register
                 cxt.register = cxt.editor.selected_register.take();
 
-                self.handle_keymap_event(mode, cxt, event);
+                let res = self.handle_keymap_event(mode, cxt, event);
+                if matches!(&res, Some(KeymapResult::NotFound)) {
+                    self.on_next_key(OnKeyCallbackKind::Fallback, cxt, event);
+                }
                 if self.keymaps.pending().is_empty() {
                     cxt.editor.count = None
                 } else {
@@ -1050,24 +1120,38 @@ impl EditorView {
         Some(area)
     }
 
-    pub fn clear_completion(&mut self, editor: &mut Editor) {
+    pub fn clear_completion(&mut self, editor: &mut Editor) -> Option<OnKeyCallback> {
         self.completion = None;
+        let mut on_next_key: Option<OnKeyCallback> = None;
         if let Some(last_completion) = editor.last_completion.take() {
             match last_completion {
                 CompleteAction::Triggered => (),
                 CompleteAction::Applied {
                     trigger_offset,
                     changes,
-                } => self.last_insert.1.push(InsertEvent::CompletionApply {
-                    trigger_offset,
-                    changes,
-                }),
+                    placeholder,
+                } => {
+                    self.last_insert.1.push(InsertEvent::CompletionApply {
+                        trigger_offset,
+                        changes,
+                    });
+                    on_next_key = placeholder.then_some(Box::new(|cx, key| {
+                        if let Some(c) = key.char() {
+                            let (view, doc) = current!(cx.editor);
+                            if let Some(snippet) = &doc.active_snippet {
+                                doc.apply(&snippet.delete_placeholder(doc.text()), view.id);
+                            }
+                            commands::insert::insert_char(cx, c);
+                        }
+                    }))
+                }
                 CompleteAction::Selected { savepoint } => {
                     let (view, doc) = current!(editor);
                     doc.restore(view, &savepoint, false);
                 }
             }
         }
+        on_next_key
     }
 
     pub fn handle_idle_timeout(&mut self, cx: &mut commands::Context) -> EventResult {
@@ -1091,7 +1175,7 @@ impl EditorView {
             modifiers: KeyModifiers::empty(),
         };
         // dismiss any pending keys
-        if let Some(on_next_key) = self.on_next_key.take() {
+        if let Some((on_next_key, _)) = self.on_next_key.take() {
             on_next_key(cxt, null_key_event);
         }
         self.handle_keymap_event(cxt.editor.mode, cxt, null_key_event);
@@ -1314,6 +1398,24 @@ impl EditorView {
             _ => EventResult::Ignored(None),
         }
     }
+    fn on_next_key(
+        &mut self,
+        kind: OnKeyCallbackKind,
+        ctx: &mut commands::Context,
+        event: KeyEvent,
+    ) -> bool {
+        if let Some((on_next_key, kind_)) = self.on_next_key.take() {
+            if kind == kind_ {
+                on_next_key(ctx, event);
+                true
+            } else {
+                self.on_next_key = Some((on_next_key, kind_));
+                false
+            }
+        } else {
+            false
+        }
+    }
 }
 
 impl Component for EditorView {
@@ -1365,10 +1467,7 @@ impl Component for EditorView {
 
                 let mode = cx.editor.mode();
 
-                if let Some(on_next_key) = self.on_next_key.take() {
-                    // if there's a command waiting input, do that first
-                    on_next_key(&mut cx, key);
-                } else {
+                if !self.on_next_key(OnKeyCallbackKind::PseudoPending, &mut cx, key) {
                     match mode {
                         Mode::Insert => {
                             // let completion swallow the event if necessary
@@ -1399,7 +1498,15 @@ impl Component for EditorView {
                                 if let Some(callback) = res {
                                     if callback.is_some() {
                                         // assume close_fn
-                                        self.clear_completion(cx.editor);
+                                        if let Some(cb) = self.clear_completion(cx.editor) {
+                                            if consumed {
+                                                cx.on_next_key_callback =
+                                                    Some((cb, OnKeyCallbackKind::Fallback))
+                                            } else {
+                                                self.on_next_key =
+                                                    Some((cb, OnKeyCallbackKind::Fallback));
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1418,8 +1525,8 @@ impl Component for EditorView {
 
                 self.on_next_key = cx.on_next_key_callback.take();
                 match self.on_next_key {
-                    Some(_) => self.pseudo_pending.push(key),
-                    None => self.pseudo_pending.clear(),
+                    Some((_, OnKeyCallbackKind::PseudoPending)) => self.pseudo_pending.push(key),
+                    _ => self.pseudo_pending.clear(),
                 }
 
                 // appease borrowck

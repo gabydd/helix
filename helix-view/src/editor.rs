@@ -4,6 +4,7 @@ use crate::{
     document::{
         DocumentOpenError, DocumentSavedEventFuture, DocumentSavedEventResult, Mode, SavePoint,
     },
+    events::DocumentFocusLost,
     graphics::{CursorKind, Rect},
     handlers::Handlers,
     info::Info,
@@ -14,6 +15,7 @@ use crate::{
     Document, DocumentId, View, ViewId,
 };
 use dap::StackFrame;
+use helix_event::dispatch;
 use helix_vcs::DiffProviderRegistry;
 
 use futures_util::stream::select_all::SelectAll;
@@ -324,6 +326,8 @@ pub struct Config {
     pub rulers: Vec<u16>,
     #[serde(default)]
     pub whitespace: WhitespaceConfig,
+    /// Whether to render rainbow highlights. Defaults to `false`.
+    pub rainbow_brackets: bool,
     /// Persistently display open buffers along the top
     pub bufferline: BufferLine,
     /// Vertical indent width guides.
@@ -355,6 +359,62 @@ pub struct Config {
     pub end_of_line_diagnostics: DiagnosticFilter,
     // Set to override the default clipboard provider
     pub clipboard_provider: ClipboardProvider,
+    pub backup: BackupConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "kebab-case", default)]
+pub struct BackupConfig {
+    pub kind: BackupKind,
+    #[serde(deserialize_with = "deserialize_non_empty_vec")]
+    pub directories: Vec<PathBuf>,
+    #[serde(deserialize_with = "deserialize_non_empty_str")]
+    pub extension: String,
+}
+
+impl Default for BackupConfig {
+    fn default() -> Self {
+        Self {
+            kind: BackupKind::Auto,
+            directories: vec![helix_loader::state_dir().join("backup")],
+            extension: String::from("bck"),
+        }
+    }
+}
+
+fn deserialize_non_empty_vec<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    use serde::de::Error;
+
+    let vec = Vec::<T>::deserialize(deserializer)?;
+    if vec.is_empty() {
+        return Err(<D::Error as Error>::custom("vector cannot be empty!"));
+    }
+    Ok(vec)
+}
+
+pub fn deserialize_non_empty_str<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+
+    let s = String::deserialize(deserializer)?;
+    if s.is_empty() {
+        return Err(<D::Error as Error>::custom("string cannot be empty"));
+    }
+    Ok(s)
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "kebab-case")]
+pub enum BackupKind {
+    None,
+    Copy,
+    Auto,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Eq, PartialOrd, Ord)]
@@ -976,6 +1036,7 @@ impl Default for Config {
             terminal: get_terminal_provider(),
             rulers: Vec::new(),
             whitespace: WhitespaceConfig::default(),
+            rainbow_brackets: false,
             bufferline: BufferLine::default(),
             indent_guides: IndentGuidesConfig::default(),
             color_modes: false,
@@ -995,6 +1056,7 @@ impl Default for Config {
             inline_diagnostics: InlineDiagnosticsConfig::default(),
             end_of_line_diagnostics: DiagnosticFilter::Disable,
             clipboard_provider: ClipboardProvider::default(),
+            backup: BackupConfig::default(),
         }
     }
 }
@@ -1130,6 +1192,7 @@ pub enum CompleteAction {
     Applied {
         trigger_offset: usize,
         changes: Vec<Change>,
+        placeholder: bool,
     },
 }
 
@@ -1584,7 +1647,7 @@ impl Editor {
             self.enter_normal_mode();
         }
 
-        match action {
+        let focust_lost = match action {
             Action::Replace => {
                 let (view, doc) = current_ref!(self);
                 // If the current view is an empty scratch buffer and is not displayed in any other views, delete it.
@@ -1634,6 +1697,10 @@ impl Editor {
 
                 self.replace_document_in_view(view_id, id);
 
+                dispatch(DocumentFocusLost {
+                    editor: self,
+                    doc: id,
+                });
                 return;
             }
             Action::Load => {
@@ -1644,6 +1711,7 @@ impl Editor {
                 return;
             }
             Action::HorizontalSplit | Action::VerticalSplit => {
+                let focus_lost = self.tree.try_get(self.tree.focus).map(|view| view.doc);
                 // copy the current view, unless there is no view yet
                 let view = self
                     .tree
@@ -1663,10 +1731,17 @@ impl Editor {
                 let doc = doc_mut!(self, &id);
                 doc.ensure_view_init(view_id);
                 doc.mark_as_focused();
+                focus_lost
             }
-        }
+        };
 
         self._refresh();
+        if let Some(focus_lost) = focust_lost {
+            dispatch(DocumentFocusLost {
+                editor: self,
+                doc: focus_lost,
+            });
+        }
     }
 
     /// Generate an id for a new document and register it.
@@ -1893,11 +1968,15 @@ impl Editor {
                 let doc = doc_mut!(self, &view.doc);
                 view.sync_changes(doc);
             }
+            let view = view!(self, view_id);
+            let doc = doc_mut!(self, &view.doc);
+            doc.mark_as_focused();
+            let focus_lost = self.tree.get(prev_id).doc;
+            dispatch(DocumentFocusLost {
+                editor: self,
+                doc: focus_lost,
+            });
         }
-
-        let view = view!(self, view_id);
-        let doc = doc_mut!(self, &view.doc);
-        doc.mark_as_focused();
     }
 
     pub fn focus_next(&mut self) {
