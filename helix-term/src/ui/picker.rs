@@ -2,8 +2,9 @@ mod handlers;
 mod query;
 
 use crate::{
-    commands::ComponentRef,
+    commands::ComponentFn,
     compositor::{self, Component, Compositor, Context, Event, EventResult},
+    keymap::{KeymapResult, MappableCommand},
     ui::{
         self,
         document::{render_document, LinePos, TextRenderer},
@@ -1034,28 +1035,27 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
             EventResult::Consumed(Some(callback))
         };
 
-        match ctx.keymaps.get_by_component_id(self.id, key_event) {
-            crate::keymap::KeymapResult::Matched(crate::keymap::MappableCommand::Component {
-                fun,
-                ..
-            }) => {
-                if let EventResult::Consumed(callback) = fun(ComponentRef::Picker(self), ctx) {
-                    return EventResult::Consumed(callback);
-                }
+        if let KeymapResult::Matched(MappableCommand::Component { fun, .. }) =
+            ctx.keymaps.get_by_component_id(self.id, key_event)
+        {
+            if let EventResult::Consumed(callback) = match fun {
+                ComponentFn::Picker(f) => f(self, ctx),
+                ComponentFn::Component(f) => f(self, ctx),
+                _ => EventResult::Ignored(None),
+            } {
+                return EventResult::Consumed(callback);
             }
-            _ => (),
         }
-
-        match ctx.keymaps.get_by_component_id(PICKER_ID, key_event) {
-            crate::keymap::KeymapResult::Matched(crate::keymap::MappableCommand::Component {
-                fun,
-                ..
-            }) => {
-                if let EventResult::Consumed(callback) = fun(ComponentRef::Picker(self), ctx) {
-                    return EventResult::Consumed(callback);
-                }
+        if let KeymapResult::Matched(MappableCommand::Component { fun, .. }) =
+            ctx.keymaps.get_by_component_id(PICKER_ID, key_event)
+        {
+            if let EventResult::Consumed(callback) = match fun {
+                ComponentFn::Picker(f) => f(self, ctx),
+                ComponentFn::Component(f) => f(self, ctx),
+                _ => EventResult::Ignored(None),
+            } {
+                return EventResult::Consumed(callback);
             }
-            _ => (),
         }
 
         match key_event {
@@ -1096,81 +1096,48 @@ impl<T: 'static + Send + Sync, D> Drop for Picker<T, D> {
 
 type PickerCallback<T> = Box<dyn Fn(&mut Context, &T, Action)>;
 
-pub fn move_up(component: ComponentRef, _cx: &mut Context) -> EventResult {
-    let ComponentRef::Picker(picker) = component else {
-        return EventResult::Ignored(None);
-    };
+pub fn move_up(picker: &mut dyn AnyPicker, _cx: &mut Context) -> EventResult {
     picker.move_by(1, Direction::Backward);
     return EventResult::Consumed(None);
 }
-pub fn move_down(component: ComponentRef, _cx: &mut Context) -> EventResult {
-    let ComponentRef::Picker(picker) = component else {
-        return EventResult::Ignored(None);
-    };
+pub fn move_down(picker: &mut dyn AnyPicker, _cx: &mut Context) -> EventResult {
     picker.move_by(1, Direction::Forward);
     EventResult::Consumed(None)
 }
-pub fn page_down(component: ComponentRef, _cx: &mut Context) -> EventResult {
-    let ComponentRef::Picker(picker) = component else {
-        return EventResult::Ignored(None);
-    };
+pub fn page_down(picker: &mut dyn AnyPicker, _cx: &mut Context) -> EventResult {
     picker.page_down();
     EventResult::Consumed(None)
 }
-pub fn page_up(component: ComponentRef, _cx: &mut Context) -> EventResult {
-    let ComponentRef::Picker(picker) = component else {
-        return EventResult::Ignored(None);
-    };
+pub fn page_up(picker: &mut dyn AnyPicker, _cx: &mut Context) -> EventResult {
     picker.page_up();
     EventResult::Consumed(None)
 }
-pub fn to_start(component: ComponentRef, _cx: &mut Context) -> EventResult {
-    let ComponentRef::Picker(picker) = component else {
-        return EventResult::Ignored(None);
-    };
+pub fn to_start(picker: &mut dyn AnyPicker, _cx: &mut Context) -> EventResult {
     picker.to_start();
     EventResult::Consumed(None)
 }
-pub fn to_end(component: ComponentRef, _cx: &mut Context) -> EventResult {
-    let ComponentRef::Picker(picker) = component else {
-        return EventResult::Ignored(None);
-    };
+pub fn to_end(picker: &mut dyn AnyPicker, _cx: &mut Context) -> EventResult {
     picker.to_end();
     EventResult::Consumed(None)
 }
 
-pub fn load(component: ComponentRef, cx: &mut Context) -> EventResult {
-    let ComponentRef::Picker(picker) = component else {
-        return EventResult::Ignored(None);
-    };
+pub fn load(picker: &mut dyn AnyPicker, cx: &mut Context) -> EventResult {
     picker.call_fn_with_selection(cx, Action::Load);
     EventResult::Consumed(None)
 }
-pub fn replace(component: ComponentRef, cx: &mut Context) -> EventResult {
-    let ComponentRef::Picker(picker) = component else {
-        return EventResult::Ignored(None);
-    };
+pub fn replace(picker: &mut dyn AnyPicker, cx: &mut Context) -> EventResult {
     picker.call_fn_with_selection(cx, Action::Replace);
     return close_fn();
 }
-pub fn horizontal_split(component: ComponentRef, cx: &mut Context) -> EventResult {
-    let ComponentRef::Picker(picker) = component else {
-        return EventResult::Ignored(None);
-    };
+pub fn horizontal_split(picker: &mut dyn AnyPicker, cx: &mut Context) -> EventResult {
     picker.call_fn_with_selection(cx, Action::HorizontalSplit);
     return close_fn();
 }
-pub fn vertical_split(component: ComponentRef, cx: &mut Context) -> EventResult {
-    let ComponentRef::Picker(picker) = component else {
-        return EventResult::Ignored(None);
-    };
+pub fn vertical_split(picker: &mut dyn AnyPicker, cx: &mut Context) -> EventResult {
     picker.call_fn_with_selection(cx, Action::VerticalSplit);
     return close_fn();
 }
-pub fn toggle_preview(component: ComponentRef, _cx: &mut Context) -> EventResult {
-    let ComponentRef::Picker(picker) = component else {
-        return EventResult::Ignored(None);
-    };
+pub fn toggle_preview(picker: &mut dyn AnyPicker, _cx: &mut Context) -> EventResult {
     picker.toggle_preview();
     EventResult::Consumed(None)
 }
@@ -1209,7 +1176,7 @@ pub fn toggle_preview(component: ComponentRef, _cx: &mut Context) -> EventResult
 // This is also cool because it doesn't even need to interact with
 // the picker, so we don't need concrete types:
 
-pub fn close(_component: ComponentRef, _cx: &mut Context) -> EventResult {
+pub fn close(_component: &mut dyn Component, _cx: &mut Context) -> EventResult {
     close_fn()
 }
 

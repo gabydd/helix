@@ -198,10 +198,11 @@ where
 
 use helix_view::{align_view, Align};
 
-pub enum ComponentRef<'a> {
-    Picker(&'a mut dyn crate::ui::picker::AnyPicker),
-    Menu(&'a mut dyn crate::ui::menu::AnyMenu),
-    Component(&'a mut dyn crate::compositor::Component),
+#[derive(Clone)]
+pub enum ComponentFn {
+    Picker(fn(&mut (dyn crate::ui::picker::AnyPicker), &mut compositor::Context) -> EventResult),
+    Menu(fn(&mut dyn crate::ui::menu::AnyMenu, &mut compositor::Context) -> EventResult),
+    Component(fn(&mut dyn crate::compositor::Component, &mut compositor::Context) -> EventResult),
 }
 
 /// MappableCommands are commands that can be bound to keys, executable in
@@ -232,7 +233,7 @@ pub enum MappableCommand {
     },
     Component {
         name: &'static str,
-        fun: fn(ComponentRef, &mut compositor::Context) -> EventResult,
+        fun: ComponentFn,
         doc: &'static str,
     },
 }
@@ -255,13 +256,13 @@ macro_rules! static_commands {
 }
 
 macro_rules! component_commands {
-    ( $($first:ident::$second:ident, $name:ident, $doc:literal,)* ) => {
+    ( $($place:ident, $first:ident::$second:ident, $name:ident, $doc:literal,)* ) => {
         $(
             paste! {
                 #[allow(non_upper_case_globals)]
                 pub const [<$second _ $name>]: Self = Self::Component {
                     name: stringify!([<$second _ $name>]),
-                    fun: $first::$second::$name,
+                    fun: ComponentFn::$place($first::$second::$name),
                     doc: $doc
                 };
             }
@@ -333,23 +334,23 @@ impl MappableCommand {
 
     #[rustfmt::skip]
     component_commands!(
-        ui::picker, move_up, "move up one item",
-        ui::picker, move_down, "move down one item",
-        ui::picker, page_down, "page down picker",
-        ui::picker, page_up, "page up picker",
-        ui::picker, to_start, "page up picker",
-        ui::picker, to_end, "page up picker",
-        ui::picker, load, "page up picker",
-        ui::picker, replace, "page up picker",
-        ui::picker, horizontal_split, "page up picker",
-        ui::picker, vertical_split, "page up picker",
-        ui::picker, toggle_preview, "page up picker",
-        ui::picker, close, "Close the focused picker",
-        // ui::picker, close_buffer, "Close the currently focused buffer",
-        ui::menu, move_up, "Close the focused menu",
-        ui::menu, move_down, "Close the focused menu",
-        ui::menu, enter, "Close the focused menu",
-        ui::menu, close, "Close the focused menu",
+        Picker, ui::picker, move_up, "move up one item",
+        Picker, ui::picker, move_down, "move down one item",
+        Picker, ui::picker, page_down, "page down picker",
+        Picker, ui::picker, page_up, "page up picker",
+        Picker, ui::picker, to_start, "page up picker",
+        Picker, ui::picker, to_end, "page up picker",
+        Picker, ui::picker, load, "page up picker",
+        Picker, ui::picker, replace, "page up picker",
+        Picker, ui::picker, horizontal_split, "page up picker",
+        Picker, ui::picker, vertical_split, "page up picker",
+        Picker, ui::picker, toggle_preview, "page up picker",
+        Component, ui::picker, close, "Close the focused picker",
+        // Picker, ui::picker, close_buffer, "Close the currently focused buffer",
+        Menu, ui::menu, move_up, "Close the focused menu",
+        Menu, ui::menu, move_down, "Close the focused menu",
+        Menu, ui::menu, enter, "Close the focused menu",
+        Component, ui::menu, close, "Close the focused menu",
     );
 
     #[rustfmt::skip]

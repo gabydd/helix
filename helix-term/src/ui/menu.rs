@@ -1,9 +1,11 @@
 use std::{borrow::Cow, cmp::Reverse};
 
 use crate::{
-    commands::ComponentRef,
+    commands::ComponentFn,
     compositor::{Callback, Component, Compositor, Context, Event, EventResult},
-    ctrl, key, shift,
+    ctrl, key,
+    keymap::{KeymapResult, MappableCommand},
+    shift,
 };
 use helix_core::fuzzy::MATCHER;
 use nucleo::pattern::{Atom, AtomKind, CaseMatching, Normalization};
@@ -275,16 +277,16 @@ impl<T: Item + 'static> Component for Menu<T> {
             _ => return EventResult::Ignored(None),
         };
 
-        match cx.keymaps.get_by_component_id(self.id, event) {
-            crate::keymap::KeymapResult::Matched(crate::keymap::MappableCommand::Component {
-                fun,
-                ..
-            }) => {
-                if let EventResult::Consumed(callback) = fun(ComponentRef::Menu(self), cx) {
-                    return EventResult::Consumed(callback);
-                }
+        if let KeymapResult::Matched(MappableCommand::Component { fun, .. }) =
+            cx.keymaps.get_by_component_id(self.id, event)
+        {
+            if let EventResult::Consumed(callback) = match fun {
+                ComponentFn::Menu(f) => f(self, cx),
+                ComponentFn::Component(f) => f(self, cx),
+                _ => EventResult::Ignored(None),
+            } {
+                return EventResult::Consumed(callback);
             }
-            _ => (),
         }
 
         let close_fn: Option<Callback> = Some(Box::new(|compositor: &mut Compositor, _| {
@@ -450,38 +452,26 @@ impl<T: Item + 'static> Component for Menu<T> {
     }
 }
 
-pub fn move_up(component: ComponentRef, cx: &mut Context) -> EventResult {
-    let ComponentRef::Menu(menu) = component
-            else {
-                return EventResult::Ignored(None);
-            };
+pub fn move_up(menu: &mut dyn AnyMenu, cx: &mut Context) -> EventResult {
     menu.move_up();
     menu.call_fn_with_selection(cx.editor, MenuEvent::Update);
     return EventResult::Consumed(None);
 }
 
-pub fn move_down(component: ComponentRef, cx: &mut Context) -> EventResult {
-    let ComponentRef::Menu(menu) = component
-            else {
-                return EventResult::Ignored(None);
-            };
+pub fn move_down(menu: &mut dyn AnyMenu, cx: &mut Context) -> EventResult {
     menu.move_down();
     menu.call_fn_with_selection(cx.editor, MenuEvent::Update);
     return EventResult::Consumed(None);
 }
 
-pub fn enter(component: ComponentRef, cx: &mut Context) -> EventResult {
-    let ComponentRef::Menu(menu) = component
-            else {
-                return EventResult::Ignored(None);
-            };
+pub fn enter(menu: &mut dyn AnyMenu, cx: &mut Context) -> EventResult {
     if menu.call_if_selection(cx.editor, MenuEvent::Validate) {
         return EventResult::Consumed(close_fn());
     }
     EventResult::Ignored(close_fn())
 }
 
-pub fn close(_component: ComponentRef, _cx: &mut Context) -> EventResult {
+pub fn close(_component: &mut dyn Component, _cx: &mut Context) -> EventResult {
     EventResult::Consumed(close_fn())
 }
 
