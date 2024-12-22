@@ -2,10 +2,7 @@ use std::cmp::Ordering;
 
 use helix_core::doc_formatter::FormattedGrapheme;
 use helix_core::Position;
-use helix_view::{
-    editor::CursorCache,
-    theme::{Color, Style},
-};
+use helix_view::{document::DocumentColorSwatches, editor::CursorCache, theme::Style};
 
 use crate::ui::document::{LinePos, TextRenderer};
 
@@ -153,34 +150,47 @@ impl<'a> DecorationManager<'a> {
     }
 }
 
-pub struct ColorSwatch {
-    color: Color,
-    pos: usize,
+pub struct ColorSwatch<'a> {
+    swatches: &'a DocumentColorSwatches,
+    index: usize,
 }
 
-impl ColorSwatch {
-    pub fn new(color: Color, pos: usize) -> Self {
-        ColorSwatch { color, pos }
+impl<'a> ColorSwatch<'a> {
+    pub fn new(swatches: &'a DocumentColorSwatches) -> Self {
+        ColorSwatch { swatches, index: 0 }
     }
 }
 
-impl Decoration for ColorSwatch {
+impl Decoration for ColorSwatch<'_> {
     fn decorate_grapheme(
         &mut self,
         _renderer: &mut TextRenderer,
         _grapheme: &FormattedGrapheme,
         style: &mut Style,
     ) -> usize {
-        style.fg = Some(self.color);
-        usize::MAX
-    }
-
-    fn reset_pos(&mut self, pos: usize) -> usize {
-        if self.pos >= pos {
-            self.pos
+        if let Some(color) = self.swatches.colors.get(self.index) {
+            style.fg = Some(*color);
+            self.index += 1;
+            if let Some(swatch) = self.swatches.color_swatches.get(self.index) {
+                swatch.char_idx
+            } else {
+                usize::MAX
+            }
         } else {
             usize::MAX
         }
+    }
+
+    fn reset_pos(&mut self, pos: usize) -> usize {
+        let mut index = 0;
+        for swatch in &self.swatches.color_swatches {
+            if swatch.char_idx >= pos {
+                self.index = index;
+                return swatch.char_idx;
+            }
+            index += 1;
+        }
+        usize::MAX
     }
 }
 
