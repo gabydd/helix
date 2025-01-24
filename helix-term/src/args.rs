@@ -33,10 +33,14 @@ impl Args {
             // Before setting the working directory, resolve all the paths in args.files
             let filename = helix_stdx::path::canonicalize(filename);
 
-            args.files
-                .entry(filename)
-                .and_modify(|positions| positions.push(position))
-                .or_insert_with(|| vec![position]);
+            if let Some(position) = position {
+                args.files
+                    .entry(filename)
+                    .and_modify(|positions| positions.push(position))
+                    .or_insert_with(|| vec![position]);
+            } else {
+                args.files.entry(filename).or_insert(vec![]);
+            }
         };
 
         argv.next(); // skip the program, we don't care about that
@@ -132,8 +136,8 @@ impl Args {
 }
 
 /// Parse arg into [`PathBuf`] and position.
-pub(crate) fn parse_file(s: &str) -> (PathBuf, Position) {
-    let def = || (PathBuf::from(s), Position::default());
+pub(crate) fn parse_file(s: &str) -> (PathBuf, Option<Position>) {
+    let def = || (PathBuf::from(s), None);
     if Path::new(s).exists() {
         return def();
     }
@@ -145,22 +149,22 @@ pub(crate) fn parse_file(s: &str) -> (PathBuf, Position) {
 /// Split file.rs:10:2 into [`PathBuf`], row and col.
 ///
 /// Does not validate if file.rs is a file or directory.
-fn split_path_row_col(s: &str) -> Option<(PathBuf, Position)> {
+fn split_path_row_col(s: &str) -> Option<(PathBuf, Option<Position>)> {
     let mut s = s.trim_end_matches(':').rsplitn(3, ':');
     let col: usize = s.next()?.parse().ok()?;
     let row: usize = s.next()?.parse().ok()?;
     let path = s.next()?.into();
     let pos = Position::new(row.saturating_sub(1), col.saturating_sub(1));
-    Some((path, pos))
+    Some((path, Some(pos)))
 }
 
 /// Split file.rs:10 into [`PathBuf`] and row.
 ///
 /// Does not validate if file.rs is a file or directory.
-fn split_path_row(s: &str) -> Option<(PathBuf, Position)> {
+fn split_path_row(s: &str) -> Option<(PathBuf, Option<Position>)> {
     let (path, row) = s.trim_end_matches(':').rsplit_once(':')?;
     let row: usize = row.parse().ok()?;
     let path = path.into();
     let pos = Position::new(row.saturating_sub(1), 0);
-    Some((path, pos))
+    Some((path, Some(pos)))
 }
