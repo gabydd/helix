@@ -222,6 +222,14 @@ impl Application {
                 .unwrap_or_else(|_| editor.new_file(Action::VerticalSplit));
         }
 
+        let bck_config = &config.load().editor.backup;
+        if bck_config.kind != helix_view::editor::BackupKind::None
+            && !bck_config.directories.iter().any(|p| p.exists())
+        {
+            // Initialize last directory for backups
+            std::fs::create_dir_all(bck_config.directories.last().unwrap())?;
+        }
+
         #[cfg(windows)]
         let signals = futures_util::stream::empty();
         #[cfg(not(windows))]
