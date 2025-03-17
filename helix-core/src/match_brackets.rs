@@ -100,6 +100,29 @@ fn find_pair(
                     }
                 }
             }
+            if node.child_count() >= 3 {
+                if let Some((end_pos, close)) = as_char(doc, &close) {
+                    if let Some((first, _)) = PAIRS.iter().find(|(_, end)| end == &close) {
+                        for i in 1..node.child_count() - 1 {
+                            let open = node.child(i).unwrap();
+                            if let Some((start_pos, open)) = as_char(doc, &open) {
+                                if &open == first && start_pos <= pos_ {
+                                    log::error!("found");
+                                    if end_pos == pos_ {
+                                        return Some(start_pos);
+                                    }
+
+                                    // We return the end char if the cursor is either on the start char
+                                    // or at some arbitrary position between start and end char.
+                                    if traverse_parents || start_pos == pos_ {
+                                        return Some(end_pos);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         // this node itselt wasn't a pair but maybe its siblings are
 
